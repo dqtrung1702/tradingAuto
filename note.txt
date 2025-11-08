@@ -1,0 +1,2 @@
+py scripts/fetch_history.py --symbol XAUUSDc --start 2025-11-05 --end 2025-11-08 --db-url postgresql+asyncpg://trader:admin@localhost:5432/mt5
+py scripts/backtest_ma.py --db-url postgresql+asyncpg://trader:admin@localhost:5432/mt5 --symbol XAUUSDc --start 2025-11-05 --end 2025-11-08 --fast 20 --slow 50 --timeframe 15min
