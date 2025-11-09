@@ -1,2 +1,6 @@
 py scripts/fetch_history.py --symbol XAUUSDc --start 2025-11-05 --end 2025-11-08 --db-url postgresql+asyncpg://trader:admin@localhost:5432/mt5
-py scripts/backtest_ma.py --db-url postgresql+asyncpg://trader:admin@localhost:5432/mt5 --symbol XAUUSDc --start 2025-11-05 --end 2025-11-08 --fast 20 --slow 50 --timeframe 15min
+py -m scripts.backtest_ma --db-url postgresql+asyncpg://trader:admin@localhost:5432/mt5 --symbol XAUUSDc --start 2025-11-05 --end 2025-11-08 --fast 20 --slow 50 --timeframe 1min
+
+SELECT count(1), cast(TO_TIMESTAMP(time_msc/1000) - interval '7 hours'  as date) FROM public.ticks t group by cast(TO_TIMESTAMP(time_msc/1000) - interval '7 hours' as date)
+
+wsl -d Ubuntu-22.04 sudo service postgresql start
