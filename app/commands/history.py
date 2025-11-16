@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone, timedelta
 from time import sleep
 from typing import List
+from functools import partial
 
 try:  # MetaTrader5 là dependency tuỳ chọn
     import MetaTrader5 as mt5  # type: ignore
@@ -140,7 +142,9 @@ async def fetch_history(
     max_days: int,
 ) -> None:
     print("Fetching ticks from MT5...")
-    ticks = fetch_ticks_mt5(symbol, start, end, max_days_per_call=max_days)
+    loop = asyncio.get_running_loop()
+    fetch_fn = partial(fetch_ticks_mt5, symbol, start, end, max_days_per_call=max_days)
+    ticks = await loop.run_in_executor(None, fetch_fn)
     print(f"Fetched {len(ticks)} ticks total")
 
     utc7 = timezone(timedelta(hours=7))

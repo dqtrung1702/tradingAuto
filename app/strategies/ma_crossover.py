@@ -1,6 +1,6 @@
 """Moving Average Crossover strategy implementation."""
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 import pandas as pd
 import numpy as np
 import logging
@@ -25,10 +25,10 @@ EventHandler = Callable[[Dict[str, Any]], Awaitable[None] | None]
 class MAConfig:
     """Moving Average strategy configuration."""
     # MA parameters
-    fast_ma: int = 21  # Fast MA period (EMA)
-    slow_ma: int = 89  # Slow MA period (EMA)
+    fast_ma: int = 8  # Fast MA period (EMA)
+    slow_ma: int = 21  # Slow MA period (EMA)
     ma_type: str = 'ema'  # MA type: 'sma' or 'ema'
-    timeframe: str = '1min'  # Chart timeframe
+    timeframe: str = '5min'  # Chart timeframe
 
         # Trading parameters
     symbol: str = 'XAUUSDc'
@@ -37,30 +37,43 @@ class MAConfig:
     risk_pct: float = 1.0  # % vốn rủi ro mỗi lệnh
     contract_size: float = 100.0  # Quy đổi PnL: ví dụ XAUUSD ~100 oz/lot
     size_from_risk: bool = False  # Nếu True -> tính volume từ risk_pct
-    sl_atr: float = 2.0  # Stop loss ATR multiplier
-    tp_atr: float = 3.0  # Take profit ATR multiplier
+    sl_atr: float = 1.5  # Stop loss ATR multiplier
+    tp_atr: float = 2.5  # Take profit ATR multiplier
+    trail_trigger_atr: float = 1.8
+    trail_atr_mult: float = 1.1
     paper_mode: bool = True  # Paper trading mode
     # Optional SL/TP theo pip (ưu tiên hơn ATR nếu được cấu hình)
     sl_pips: Optional[float] = None
     tp_pips: Optional[float] = None
     pip_size: float = 0.01  # 1 pip = pip_size đơn vị giá (ví dụ XAUUSD = 0.01)
-    momentum_type: str = "macd"  # "macd" hoặc "pct"
+    momentum_type: str = "hybrid"  # "macd" hoặc "pct"
     momentum_window: int = 14  # dùng cho pct
-    momentum_threshold: float = 0.1  # pct threshold
+    momentum_threshold: float = 0.07  # pct threshold
     macd_fast: int = 12
     macd_slow: int = 26
     macd_signal: int = 9
-    macd_threshold: float = 0.0  # histogram threshold
+    macd_threshold: float = 0.0002  # histogram threshold
+    rsi_threshold_long: float = 60.0
+    rsi_threshold_short: float = 40.0
     # Breakout specific tuning
     range_lookback: int = 30  # Bars to detect range high/low
     range_min_atr: float = 0.8  # Range height must be >= ATR * this
-    range_min_points: float = 0.5  # Absolute minimum range height (USD)
-    breakout_buffer_atr: float = 0.25  # Buffer added to S/R based on ATR
+    range_min_points: float = 1.0  # Absolute minimum range height (USD)
+    breakout_buffer_atr: float = 0.3  # Buffer added to S/R based on ATR
     breakout_confirmation_bars: int = 1  # Number of closes required outside range
     atr_baseline_window: int = 14
-    atr_multiplier_min: float = 0.8
-    atr_multiplier_max: float = 4.0
+    atr_multiplier_min: float = 1.1
+    atr_multiplier_max: float = 3.2
     trading_hours: Optional[List[str]] = None  # e.g. ["19:30-23:00", "01:00-02:30"]
+    trend_ma: int = 200
+    spread_atr_max: float = 0.08
+    market_state_window: int = 40
+    adx_window: int = 14
+    adx_threshold: float = 25.0
+    max_daily_loss: Optional[float] = None
+    max_consecutive_losses: Optional[int] = None
+    max_losses_per_session: Optional[int] = None
+    cooldown_minutes: Optional[int] = None
 
 
 @dataclass
@@ -96,6 +109,7 @@ class MACrossoverStrategy:
         self.quote_service = quote_service
         self.storage = storage
         self.logger = logging.getLogger(__name__)
+        self._tz = timezone(timedelta(hours=7))
         
         # Trạng thái
         self.current_position: Optional[Position] = None
@@ -103,6 +117,11 @@ class MACrossoverStrategy:
         self._df = None
         self._running = False
         self._event_handler = event_handler
+        self._risk_day: Optional[date] = None
+        self._daily_pnl: float = 0.0
+        self._loss_streak: int = 0
+        self._session_losses: Dict[str, int] = {}
+        self._cooldown_until: Optional[datetime] = None
 
     async def start(self):
         """Bắt đầu chạy chiến lược."""
@@ -129,34 +148,37 @@ class MACrossoverStrategy:
         if not self._running or symbol != self.config.symbol:
             return
             
-        # Cập nhật data mỗi 5 phút
-        now = datetime.now()
-        if (not self._last_update or 
-            (now - self._last_update).total_seconds() > 300):
+        now_utc = datetime.now(timezone.utc)
+        now_local = now_utc.astimezone(self._tz)
+        if (not self._last_update or
+            (now_utc - self._last_update).total_seconds() > 300):
             await self._update_data()
         if self._df is None or self._df.empty:
             await self._emit_status("Chưa có dữ liệu MA để xử lý quote")
             return
 
-        if not self._within_trading_hours(now):
+        if not self._within_trading_hours(now_local):
             await self._emit_status(
                 "Ngoài khung giờ breakout",
-                {"now": now.strftime("%H:%M:%S")},
+                {"now": now_local.strftime("%H:%M:%S")},
             )
             return
+        self._reset_risk_counters(now_local)
 
         # Tính giá trung bình bid/ask
         price = (bid + ask) / 2
         spread = ask - bid
+        current_bar = self._df.iloc[-1]
 
         # Kiểm tra điều kiện đóng lệnh nếu đang có vị thế
-        if self.current_position and self._check_exit(price):
-            await self._close_position(price)
-            return
+        if self.current_position:
+            self._maybe_trail_stop(current_bar, price)
+            if self._check_exit(price):
+                await self._close_position(price)
+                return
 
         # Kiểm tra tín hiệu mở lệnh mới nếu chưa có vị thế
         if not self.current_position:
-            current_bar = self._df.iloc[-1]
             coeff = getattr(self.config, 'spread_atr_max', 0.1) or 0.1
             atr_val = current_bar.atr if pd.notna(current_bar.atr) else None
             max_spread = (atr_val * coeff) if atr_val and atr_val > 0 else coeff
@@ -164,6 +186,10 @@ class MACrossoverStrategy:
                 await self._emit_status(
                     f"Spread hiện tại {spread:.5f} > {max_spread:.5f} (ATR={atr_val:.5f if atr_val is not None else 'NA'}, hệ số={coeff})"
                 )
+                return
+            allowed, guard_reason = self._risk_guard_allows(now_local)
+            if not allowed:
+                await self._emit_status(guard_reason or "Risk guard đang kích hoạt", {"now": now.isoformat()})
                 return
 
             buy_signal, sell_signal, reason = self._check_signals(current_bar)
@@ -179,18 +205,12 @@ class MACrossoverStrategy:
                 
     async def _update_data(self) -> None:
         """Cập nhật dữ liệu và tính toán chỉ báo."""
-        # Lấy dữ liệu 100 bars gần nhất
-        end_time = datetime.now()
-        if self.config.timeframe == '1min':
-            lookback = timedelta(minutes=100)
-        elif self.config.timeframe == '5min':
-            lookback = timedelta(minutes=500)
-        else:
-            lookback = timedelta(hours=100)
-            
+        end_time = datetime.now(timezone.utc)
+        lookback = self._calculate_lookback_duration()
         start_time = end_time - lookback
         
         # Lấy dữ liệu và tính MA nhanh
+        atr_window = max(2, int(getattr(self.config, 'atr_baseline_window', self.config.fast_ma)))
         df_fast = await get_ma_series(
             self.storage,
             self.config.symbol,
@@ -198,7 +218,8 @@ class MACrossoverStrategy:
             end_time,
             self.config.timeframe,
             self.config.fast_ma,
-            self.config.ma_type
+            self.config.ma_type,
+            atr_window=atr_window,
         )
         df_fast = df_fast.rename(columns={'ma': 'fast_ma'})
         
@@ -210,7 +231,8 @@ class MACrossoverStrategy:
             end_time,
             self.config.timeframe,
             self.config.slow_ma,
-            self.config.ma_type
+            self.config.ma_type,
+            atr_window=atr_window,
         )
         df_slow = df_slow.rename(columns={'ma': 'slow_ma'})
         
@@ -226,7 +248,8 @@ class MACrossoverStrategy:
 
         df = df.copy()
         momentum_type = getattr(self.config, 'momentum_type', 'macd').lower()
-        if momentum_type == 'macd':
+        macd_needed = momentum_type in {'macd', 'hybrid'}
+        if macd_needed:
             close = df['close']
             fast_span = max(1, int(getattr(self.config, 'macd_fast', 12)))
             slow_span = max(fast_span + 1, int(getattr(self.config, 'macd_slow', 26)))
@@ -239,12 +262,28 @@ class MACrossoverStrategy:
             df['macd_signal'] = macd_signal
             df['macd_hist'] = macd_line - macd_signal
 
-        range_window = max(5, int(getattr(self.config, 'range_lookback', 30)))
+        momentum_window = max(2, int(getattr(self.config, 'momentum_window', 14)))
+        df['rsi'] = self._compute_rsi(df['close'], momentum_window)
+
+        range_window = max(
+            5,
+            int(
+                max(
+                    getattr(self.config, 'range_lookback', 30),
+                    getattr(self.config, 'market_state_window', 30),
+                )
+            ),
+        )
         df['range_high'] = df['high'].rolling(window=range_window, min_periods=range_window).max().shift(1)
         df['range_low'] = df['low'].rolling(window=range_window, min_periods=range_window).min().shift(1)
 
         atr_window = max(2, int(getattr(self.config, 'atr_baseline_window', 14)))
         df['atr_baseline'] = df['atr'].rolling(window=atr_window, min_periods=1).mean()
+        trend_period = getattr(self.config, 'trend_ma', None)
+        if trend_period and trend_period > 1:
+            df['trend_ma'] = df['close'].ewm(span=int(trend_period), adjust=False).mean()
+        adx_window = max(3, int(getattr(self.config, 'adx_window', 14)))
+        df['adx'] = self._compute_adx(df, adx_window)
         return df
         
     def _check_signals(self, current_bar: pd.Series) -> Tuple[bool, bool, str]:
@@ -320,6 +359,22 @@ class MACrossoverStrategy:
         if not bullish_ready and not bearish_ready:
             return False, False, f"{reason} | close {current.close:.2f} chưa phá vùng (buffer {buffer:.2f})"
 
+        trend_ma_val = current.get('trend_ma') if isinstance(current, pd.Series) else None
+        if trend_ma_val is not None and not np.isnan(trend_ma_val):
+            if bullish_ready and current.close < trend_ma_val:
+                bullish_ready = False
+                reason = "Chưa vượt EMA trend"
+            if bearish_ready and current.close > trend_ma_val:
+                bearish_ready = False
+                reason = "Chưa nằm dưới EMA trend"
+
+        adx_threshold = float(getattr(self.config, 'adx_threshold', 0.0) or 0.0)
+        if adx_threshold > 0:
+            adx_val = current.get('adx') if isinstance(current, pd.Series) else None
+            formatted_adx = f"{adx_val:.2f}" if (adx_val is not None and not np.isnan(adx_val)) else "NA"
+            if adx_val is None or np.isnan(adx_val) or adx_val < adx_threshold:
+                return False, False, f"ADX {formatted_adx} < {adx_threshold}"
+
         momentum_type = getattr(self.config, 'momentum_type', 'macd').lower()
         if momentum_type == 'macd':
             hist = current.get('macd_hist') if isinstance(current, pd.Series) else None
@@ -332,7 +387,7 @@ class MACrossoverStrategy:
             if bearish_ready and hist > -thresh:
                 bearish_ready = False
                 reason = f"MACD hist {hist:.4f} > {-thresh}"
-        else:
+        elif momentum_type == 'pct':
             threshold = max(0.0, getattr(self.config, 'momentum_threshold', 0.0))
             window = max(1, getattr(self.config, 'momentum_window', 1))
             if threshold > 0 and len(df) > window:
@@ -345,12 +400,87 @@ class MACrossoverStrategy:
                 if bearish_ready and pct_change > -threshold:
                     bearish_ready = False
                     reason = f"%change {pct_change:.2f}% > {-threshold}%"
+        elif momentum_type == 'hybrid':
+            hist = current.get('macd_hist') if isinstance(current, pd.Series) else None
+            rsi_val = current.get('rsi') if isinstance(current, pd.Series) else None
+            macd_thresh = getattr(self.config, 'macd_threshold', 0.0) or 0.0
+            rsi_long = getattr(self.config, 'rsi_threshold_long', 60.0) or 60.0
+            rsi_short = getattr(self.config, 'rsi_threshold_short', 40.0) or 40.0
+            if hist is None or np.isnan(hist) or rsi_val is None or np.isnan(rsi_val):
+                return False, False, "RSI/MACD chưa đủ dữ liệu"
+            if bullish_ready and (hist < macd_thresh or rsi_val < rsi_long):
+                bullish_ready = False
+                reason = f"Momentum BUY yếu (MACD {hist:.4f}, RSI {rsi_val:.2f})"
+            if bearish_ready and (hist > -macd_thresh or rsi_val > rsi_short):
+                bearish_ready = False
+                reason = f"Momentum SELL yếu (MACD {hist:.4f}, RSI {rsi_val:.2f})"
 
         if bullish_ready:
             return True, False, f"Breakout BUY xác nhận @ {current.close:.2f}"
         if bearish_ready:
             return False, True, f"Breakout SELL xác nhận @ {current.close:.2f}"
         return False, False, reason
+
+    def _maybe_trail_stop(self, current_bar: pd.Series, price: float) -> None:
+        if not self.current_position:
+            return
+        trigger = float(getattr(self.config, 'trail_trigger_atr', 0.0) or 0.0)
+        mult = float(getattr(self.config, 'trail_atr_mult', 0.0) or 0.0)
+        if trigger <= 0 or mult <= 0:
+            return
+        atr = current_bar.atr if hasattr(current_bar, 'atr') else None
+        if atr is None or np.isnan(atr) or atr <= 0:
+            return
+        pos = self.current_position
+        move = price - pos.open_price if pos.type == 'buy' else pos.open_price - price
+        if move < trigger * atr:
+            return
+        if pos.type == 'buy':
+            new_stop = price - mult * atr
+            if new_stop > pos.stop_loss and new_stop < price:
+                pos.stop_loss = new_stop
+                pos.trailing_active = True
+        else:
+            new_stop = price + mult * atr
+            if new_stop < pos.stop_loss and new_stop > price:
+                pos.stop_loss = new_stop
+                pos.trailing_active = True
+
+    @staticmethod
+    def _compute_rsi(series: pd.Series, window: int) -> pd.Series:
+        if window <= 1:
+            return pd.Series(50.0, index=series.index)
+        delta = series.diff()
+        gain = delta.clip(lower=0)
+        loss = -delta.clip(upper=0)
+        avg_gain = gain.ewm(alpha=1 / window, adjust=False).mean()
+        avg_loss = loss.ewm(alpha=1 / window, adjust=False).mean()
+        rs = avg_gain / avg_loss.replace(0, np.nan)
+        rsi = 100 - (100 / (1 + rs))
+        return rsi.fillna(50.0)
+
+    @staticmethod
+    def _compute_adx(df: pd.DataFrame, window: int) -> pd.Series:
+        if window <= 1 or df.empty:
+            return pd.Series(0.0, index=df.index)
+        high = df['high']
+        low = df['low']
+        close = df['close']
+        up_move = high.diff()
+        down_move = -low.diff()
+        plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+        minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+        tr1 = high - low
+        tr2 = (high - close.shift()).abs()
+        tr3 = (low - close.shift()).abs()
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        atr = tr.ewm(alpha=1 / window, adjust=False).mean()
+        plus_di = 100 * pd.Series(plus_dm, index=df.index).ewm(alpha=1 / window, adjust=False).mean() / atr
+        minus_di = 100 * pd.Series(minus_dm, index=df.index).ewm(alpha=1 / window, adjust=False).mean() / atr
+        di_sum = (plus_di + minus_di).replace(0, np.nan)
+        dx = ((plus_di - minus_di).abs() / di_sum) * 100
+        adx = dx.ewm(alpha=1 / window, adjust=False).mean()
+        return adx.fillna(0.0)
         
     async def _open_position(self, order_type: str, price: float) -> None:
         """Mở vị thế mới."""
@@ -497,6 +627,7 @@ class MACrossoverStrategy:
                 "pnl_value": pnl_value,
             }
         )
+        self._update_risk_after_close(pnl_value)
         self.current_position = None
         
     def _check_exit(self, price: float) -> bool:
@@ -542,12 +673,88 @@ class MACrossoverStrategy:
                 "extra": extra or {},
             }
         )
+
+    def _reset_risk_counters(self, now: datetime) -> None:
+        if self._risk_day != now.date():
+            self._risk_day = now.date()
+            self._daily_pnl = 0.0
+            self._loss_streak = 0
+            self._session_losses = {}
+            self._cooldown_until = None
+
+    def _current_session_label(self, now: datetime) -> Optional[str]:
+        sessions = getattr(self.config, 'trading_hours', None)
+        if not sessions:
+            return "default"
+        now_local = self._to_trading_timezone(now)
+        current_minutes = now_local.hour * 60 + now_local.minute
+        for session in sessions:
+            try:
+                start_str, end_str = session.split('-', 1)
+            except ValueError:
+                continue
+            start_min = self._session_to_minutes(start_str.strip())
+            end_min = self._session_to_minutes(end_str.strip())
+            if start_min is None or end_min is None:
+                continue
+            if end_min < start_min:
+                if current_minutes >= start_min or current_minutes <= end_min:
+                    return session
+            else:
+                if start_min <= current_minutes <= end_min:
+                    return session
+        return "off"
+
+    def _risk_guard_allows(self, now: datetime) -> Tuple[bool, Optional[str]]:
+        self._reset_risk_counters(now)
+        cooldown_until = getattr(self, "_cooldown_until", None)
+        if cooldown_until and now < cooldown_until:
+            return False, f"Đang cooldown tới {cooldown_until.astimezone().strftime('%H:%M:%S')}"
+        max_daily = getattr(self.config, 'max_daily_loss', None)
+        if max_daily is not None and self._daily_pnl <= -abs(max_daily):
+            return False, "Đã vượt giới hạn lỗ ngày"
+        max_streak = getattr(self.config, 'max_consecutive_losses', None)
+        if max_streak is not None and self._loss_streak >= max_streak:
+            return False, "Đạt giới hạn chuỗi thua"
+        session_limit = getattr(self.config, 'max_losses_per_session', None)
+        if session_limit:
+            session_label = self._current_session_label(now)
+            if session_label and self._session_losses.get(session_label, 0) >= session_limit:
+                return False, f"Đạt giới hạn thua trong phiên {session_label}"
+        return True, None
+
+    def _update_risk_after_close(self, pnl_value: float) -> None:
+        now = self._now_trading()
+        self._reset_risk_counters(now)
+        self._daily_pnl += pnl_value
+        session_label = self._current_session_label(now)
+        cooldown_minutes = getattr(self.config, 'cooldown_minutes', None)
+        max_daily = getattr(self.config, 'max_daily_loss', None)
+        max_streak = getattr(self.config, 'max_consecutive_losses', None)
+        session_limit = getattr(self.config, 'max_losses_per_session', None)
+        triggered = False
+        if pnl_value < 0:
+            self._loss_streak += 1
+            if session_label:
+                self._session_losses[session_label] = self._session_losses.get(session_label, 0) + 1
+            if max_daily is not None and self._daily_pnl <= -abs(max_daily):
+                triggered = True
+            if max_streak is not None and self._loss_streak >= max_streak:
+                triggered = True
+            if session_limit and session_label and self._session_losses.get(session_label, 0) >= session_limit:
+                triggered = True
+        else:
+            self._loss_streak = 0
+
+        if cooldown_minutes and triggered:
+            self._cooldown_until = now + timedelta(minutes=cooldown_minutes)
     
     async def calculate_signals(self, 
                               storage: Storage,
                               start_time: datetime,
                               end_time: datetime) -> pd.DataFrame:
         """Calculate trading signals for the given period."""
+        atr_window = max(2, int(getattr(self.config, 'atr_baseline_window', self.config.fast_ma)))
         # Get fast MA
         df_fast = await get_ma_series(
             storage,
@@ -556,7 +763,8 @@ class MACrossoverStrategy:
             end_time,
             self.config.timeframe,
             self.config.fast_ma,
-            self.config.ma_type
+            self.config.ma_type,
+            atr_window=atr_window,
         )
         df_fast = df_fast.rename(columns={'ma': 'fast_ma'})
         
@@ -568,7 +776,8 @@ class MACrossoverStrategy:
             end_time,
             self.config.timeframe,
             self.config.slow_ma,
-            self.config.ma_type
+            self.config.ma_type,
+            atr_window=atr_window,
         )
         df_slow = df_slow.rename(columns={'ma': 'slow_ma'})
         
@@ -585,7 +794,12 @@ class MACrossoverStrategy:
                 dt_obj = pd.Timestamp(bar_time).to_pydatetime()
             else:
                 dt_obj = bar_time
-            if isinstance(dt_obj, datetime) and not self._within_trading_hours(dt_obj):
+            if isinstance(dt_obj, datetime):
+                dt_local = self._to_trading_timezone(dt_obj)
+                if not self._within_trading_hours(dt_local):
+                    reasons.append("Ngoài giờ giao dịch")
+                    continue
+            else:
                 reasons.append("Ngoài giờ giao dịch")
                 continue
             if idx == 0:
@@ -600,42 +814,13 @@ class MACrossoverStrategy:
         df['breakout_reason'] = reasons
         
         return df
-    
-    def calculate_position_size(self, 
-                              capital: float,
-                              entry_price: float,
-                              stop_loss: float) -> float:
-        """Calculate position size based on risk parameters."""
-        risk_amount = capital * (self.config.risk_pct / 100)
-        pip_value = 0.01  # Adjust based on symbol
-        
-        stop_loss_pips = abs(entry_price - stop_loss) / pip_value
-        position_size = risk_amount / stop_loss_pips
-        
-        return position_size
-    
-    def get_trade_levels(self, 
-                        entry_price: float, 
-                        side: int) -> Tuple[float, float]:
-        """Calculate stop loss and take profit levels."""
-        pip_value = 0.01  # Adjust based on symbol
-        
-        if side > 0:  # Long
-            stop_loss = entry_price - (self.config.stop_loss_pips * pip_value)
-            take_profit = entry_price + (self.config.stop_loss_pips * 
-                                       self.config.take_profit_ratio * pip_value)
-        else:  # Short
-            stop_loss = entry_price + (self.config.stop_loss_pips * pip_value)
-            take_profit = entry_price - (self.config.stop_loss_pips * 
-                                       self.config.take_profit_ratio * pip_value)
-            
-        return stop_loss, take_profit
 
     def _within_trading_hours(self, now: datetime) -> bool:
         sessions = getattr(self.config, "trading_hours", None)
         if not sessions:
             return True
-        current_minutes = now.hour * 60 + now.minute
+        now_local = self._to_trading_timezone(now)
+        current_minutes = now_local.hour * 60 + now_local.minute
         for session in sessions:
             try:
                 start_str, end_str = session.split("-", 1)
@@ -664,3 +849,50 @@ class MACrossoverStrategy:
         except (ValueError, IndexError):
             return None
         return hour * 60 + minute
+
+    def _calculate_lookback_duration(self) -> timedelta:
+        bars = self._calculate_required_bars()
+        minutes = self._timeframe_minutes()
+        return timedelta(minutes=bars * minutes)
+
+    def _calculate_required_bars(self) -> int:
+        fast = max(1, int(getattr(self.config, 'fast_ma', 1)))
+        slow = max(fast + 1, int(getattr(self.config, 'slow_ma', fast + 1)))
+        trend = max(slow, int(getattr(self.config, 'trend_ma', slow)))
+        range_window = max(
+            slow,
+            int(getattr(self.config, 'range_lookback', slow)),
+            int(getattr(self.config, 'market_state_window', slow)),
+        )
+        atr_window = max(2, int(getattr(self.config, 'atr_baseline_window', slow)))
+        adx_window = max(2, int(getattr(self.config, 'adx_window', atr_window)))
+        momentum_window = max(2, int(getattr(self.config, 'momentum_window', 14)))
+        buffer = 50
+        return max(slow, trend, range_window + momentum_window, atr_window + adx_window) + buffer
+
+    def _timeframe_minutes(self) -> int:
+        tf = str(getattr(self.config, 'timeframe', '5min')).lower()
+        if tf.endswith('min'):
+            try:
+                return max(1, int(tf[:-3]))
+            except ValueError:
+                return 5
+        if tf.endswith('h'):
+            try:
+                return max(1, int(tf[:-1])) * 60
+            except ValueError:
+                return 60
+        if tf.endswith('d'):
+            try:
+                return max(1, int(tf[:-1])) * 1440
+            except ValueError:
+                return 1440
+        return 5
+
+    def _to_trading_timezone(self, dt_obj: datetime) -> datetime:
+        if dt_obj.tzinfo is None:
+            dt_obj = dt_obj.replace(tzinfo=timezone.utc)
+        return dt_obj.astimezone(self._tz)
+
+    def _now_trading(self) -> datetime:
+        return datetime.now(timezone.utc).astimezone(self._tz)

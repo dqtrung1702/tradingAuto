@@ -144,3 +144,20 @@ python -m app.cli run-live-ma \
 | `MT5_TERMINAL_PATH` | `None` | Đường dẫn tuỳ chỉnh tới `terminal64.exe`. |
 
 > **Lưu ý MT5:** Thư viện `MetaTrader5` yêu cầu chạy trên cùng máy với terminal MT5 và hiện chỉ hỗ trợ Windows. Nếu deploy dịch vụ trên Linux/macos, hãy triển khai phần lấy dữ liệu trên một máy Windows rồi truyền dữ liệu về dịch vụ này (qua WebSocket, MQ hoặc HTTP nội bộ).
+
+## Dọn các file rác / dữ liệu tạm
+Các lệnh backtest và tải lịch sử sẽ sinh ra nhiều file CSV như `backtest_XAUUSDc_*.csv`, `ticks_*last24h*.csv`. Chúng không cần commit và có thể xoá bằng:
+
+```bash
+# Xoá toàn bộ backtest CSV + file tick tạm ở thư mục gốc
+rm -f backtest_XAUUSDc_*.csv ticks_*last24h*.csv
+```
+
+Nếu muốn dọn sâu hơn (VD các file tạm nằm trong thư mục con), có thể dùng `find`:
+
+```bash
+find . -maxdepth 1 -type f -name 'backtest_*.csv' -delete
+find . -maxdepth 1 -type f -name 'ticks_*last24h*.csv' -delete
+```
+
+Trước khi commit, hãy chạy `git status` để đảm bảo không còn file rác xuất hiện ở trạng thái `untracked`.

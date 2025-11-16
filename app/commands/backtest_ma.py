@@ -58,6 +58,14 @@ async def run_backtest(
     atr_multiplier_min: float,
     atr_multiplier_max: float,
     trading_hours: Optional[str],
+    adx_window: int,
+    adx_threshold: float,
+    rsi_threshold_long: float,
+    rsi_threshold_short: float,
+    max_daily_loss: Optional[float],
+    max_loss_streak: Optional[int],
+    max_losses_per_session: Optional[int],
+    cooldown_minutes: Optional[int],
     return_summary: bool = False,
 ) -> None:
     start = datetime.fromisoformat(start_str)
@@ -87,6 +95,8 @@ async def run_backtest(
     config.sl_atr = preset_cfg.sl_atr if preset_cfg else sl_atr
     config.tp_atr = preset_cfg.tp_atr if preset_cfg else tp_atr
     config.volume = volume
+    config.contract_size = contract_size
+    config.size_from_risk = size_from_risk
     config.momentum_type = preset_cfg.momentum_type if preset_cfg else momentum_type
     config.momentum_window = preset_cfg.momentum_window if preset_cfg else momentum_window
     config.momentum_threshold = preset_cfg.momentum_threshold if preset_cfg else momentum_threshold
@@ -110,6 +120,30 @@ async def run_backtest(
         config.trading_hours = [h.strip() for h in preset_cfg.trading_hours.split(',')]
     else:
         config.trading_hours = [h.strip() for h in DEFAULT_US_TRADING_HOURS.split(',')]
+    config.adx_window = preset_cfg.adx_window if preset_cfg else adx_window
+    config.adx_threshold = preset_cfg.adx_threshold if preset_cfg else adx_threshold
+    config.rsi_threshold_long = (
+        preset_cfg.rsi_threshold_long if (preset_cfg and preset_cfg.rsi_threshold_long is not None) else rsi_threshold_long
+    )
+    config.rsi_threshold_short = (
+        preset_cfg.rsi_threshold_short if (preset_cfg and preset_cfg.rsi_threshold_short is not None) else rsi_threshold_short
+    )
+    config.max_daily_loss = (
+        preset_cfg.max_daily_loss if (preset_cfg and preset_cfg.max_daily_loss is not None) else max_daily_loss
+    )
+    config.max_consecutive_losses = (
+        preset_cfg.max_consecutive_losses
+        if (preset_cfg and preset_cfg.max_consecutive_losses is not None)
+        else max_loss_streak
+    )
+    config.max_losses_per_session = (
+        preset_cfg.max_losses_per_session
+        if (preset_cfg and preset_cfg.max_losses_per_session is not None)
+        else max_losses_per_session
+    )
+    config.cooldown_minutes = (
+        preset_cfg.cooldown_minutes if (preset_cfg and preset_cfg.cooldown_minutes is not None) else cooldown_minutes
+    )
 
     try:
         config.sl_pips = sl_pips  # type: ignore[attr-defined]

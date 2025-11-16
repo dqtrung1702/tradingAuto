@@ -51,6 +51,8 @@ class LiveStartRequest(BaseModel):
     size_from_risk: bool = False
     sl_atr: float = 2.0
     tp_atr: float = 3.0
+    trail_trigger_atr: float = 1.0
+    trail_atr_mult: float = 1.0
     sl_pips: Optional[float] = None
     tp_pips: Optional[float] = None
     pip_size: float = 0.01
@@ -61,6 +63,8 @@ class LiveStartRequest(BaseModel):
     macd_slow: int = 26
     macd_signal: int = 9
     macd_threshold: float = 0.0
+    rsi_threshold_long: float = 60.0
+    rsi_threshold_short: float = 40.0
     range_lookback: int = 40
     range_min_atr: float = 0.8
     range_min_points: float = 0.5
@@ -70,12 +74,18 @@ class LiveStartRequest(BaseModel):
     atr_multiplier_min: float = 0.8
     atr_multiplier_max: float = 4.0
     trading_hours: Optional[str] = None
+    adx_window: int = 14
+    adx_threshold: float = 0.0
     poll: float = 1.0
     live: bool = False
     ensure_history_hours: float = 0.0
     history_batch: int = 2000
     history_max_days: int = 1
     ingest_live_db: bool = False
+    max_daily_loss: Optional[float] = None
+    max_loss_streak: Optional[int] = None
+    max_losses_per_session: Optional[int] = None
+    cooldown_minutes: Optional[int] = None
 
 
 class LiveStatus(BaseModel):
