@@ -6,9 +6,9 @@ from typing import Optional, Set
 
 from fastapi import WebSocket
 
-try:  # Thư viện MetaTrader5 chỉ khả dụng trên Windows.
+try:  # Thư viện MetaTrader5 chỉ khả dụng trên Windows
     import MetaTrader5 as mt5  # type: ignore
-except ImportError:  # pragma: no cover - handled at runtime when MT5 mode is requested
+except ImportError:  # pragma: no cover - optional dependency
     mt5 = None  # type: ignore
 
 from .config import Settings
@@ -28,7 +28,7 @@ class QuoteService:
     """Lấy quote trực tiếp từ MetaTrader5 terminal đang chạy trên máy."""
 
     def __init__(self, settings: Settings):
-        if mt5 is None:  # pragma: no cover - depends on optional dependency
+        if mt5 is None:  # pragma: no cover - phụ thuộc tuỳ chọn
             raise RuntimeError(
                 "MetaTrader5 library chưa được cài đặt hoặc không khả dụng trên hệ điều hành này."
             )
@@ -40,14 +40,22 @@ class QuoteService:
         return await asyncio.to_thread(self._fetch_sync)
 
     def _fetch_sync(self) -> Quote:
-        self._ensure_initialized()
-        self._ensure_symbol_selected()
-
         symbol = self._settings.quote_symbol
-        tick = mt5.symbol_info_tick(symbol)
-        if tick is None:
-            code, message = mt5.last_error()
-            raise RuntimeError(f"Không lấy được tick cho {symbol}: {code} {message}")
+        attempt = 0
+        while True:
+            attempt += 1
+            self._ensure_initialized()
+            self._ensure_symbol_selected()
+
+            tick = mt5.symbol_info_tick(symbol)
+            if tick is None:
+                code, message = mt5.last_error()
+                if code == -10004 and attempt == 1:
+                    logger.warning("MT5 mất kết nối IPC, thử khởi tạo lại...")
+                    self._reset_connection()
+                    continue
+                raise RuntimeError(f"Không lấy được tick cho {symbol}: {code} {message}")
+            break
 
         info = mt5.symbol_info(symbol)
         currency = getattr(info, "currency_profit", None) if info else None
@@ -107,18 +115,16 @@ class QuoteService:
         symbol = self._settings.quote_symbol
         if not mt5.symbol_select(symbol, True):
             code, message = mt5.last_error()
-            # Cố gắng cung cấp thông tin gợi ý: liệt kê các symbol tương tự có trong terminal
             suggestions = []
             try:
                 all_syms = mt5.symbols_get()
                 if all_syms:
                     needle = symbol.lower()
-                    for s in all_syms:
-                        name = getattr(s, 'name', None) or getattr(s, 'path', None) or str(s)
+                    for sym in all_syms:
+                        name = getattr(sym, "name", None) or getattr(sym, "path", None) or str(sym)
                         if name and needle in name.lower():
                             suggestions.append(name)
-            except Exception:
-                # Nếu việc liệt kê symbol thất bại, bỏ qua phần gợi ý
+            except Exception:  # pragma: no cover - phụ thuộc môi trường MT5
                 suggestions = []
 
             suggestion_msg = f" Các symbol tương tự: {', '.join(suggestions)}" if suggestions else ""
@@ -132,6 +138,14 @@ class QuoteService:
 
     def _shutdown_sync(self) -> None:
         mt5.shutdown()
+        self._initialized = False
+        self._symbol_selected = False
+
+    def _reset_connection(self) -> None:
+        try:
+            mt5.shutdown()
+        except Exception:
+            pass
         self._initialized = False
         self._symbol_selected = False
 
@@ -153,7 +167,7 @@ class QuoteCache:
 
 
 class WebSocketManager:
-    """Quản lý kết nối WebSocket đang hoạt động và phát payload tới client."""
+    """Quản lý kết nối WebSocket và phát payload tới client."""
 
     def __init__(self) -> None:
         self._connections: Set[WebSocket] = set()
@@ -179,13 +193,13 @@ class WebSocketManager:
         for ws in connections:
             try:
                 await ws.send_json(payload)
-            except Exception as exc:  # pragma: no cover - network errors depend on clients
+            except Exception as exc:  # pragma: no cover - phụ thuộc client
                 logger.warning("Gửi WebSocket thất bại: %s", exc)
                 await self.disconnect(ws)
 
 
 class QuotePoller:
-    """Tác vụ nền định kỳ cập nhật cache và đẩy thông tin tới client."""
+    """Nhiệm vụ nền định kỳ cập nhật cache và broadcast WS."""
 
     def __init__(
         self,
@@ -216,8 +230,8 @@ class QuotePoller:
             try:
                 quote = await self._provider.fetch_quote()
                 await self._cache.set(quote)
+
                 await self._ws_manager.broadcast(quote)
             except Exception:
-                # Log full exception including stacktrace to ease debugging of MT5 or network issues
                 logger.exception("Không thể cập nhật quote")
             await asyncio.sleep(self._interval_seconds)

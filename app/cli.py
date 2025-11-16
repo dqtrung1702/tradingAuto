@@ -1,0 +1,265 @@
+"""CLI hợp nhất cho toàn bộ công cụ tradingAuto.
+
+Chạy bằng: ``python -m app.cli <command> [options]``
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+from datetime import datetime, timezone
+from typing import Optional
+
+from app.commands import backtest_ma, history, ingest, live_ma
+from app import strategy_presets
+
+
+def _parse_dt(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    dt = datetime.fromisoformat(value)
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Bộ công cụ tradingAuto")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    ingest_parser = sub.add_parser("ingest-live", help="Ingest realtime ticks từ MT5 vào DB")
+    ingest_parser.add_argument("--db-url", required=True)
+    ingest_parser.add_argument("--symbol", required=True)
+    ingest_parser.add_argument("--interval", type=float, default=1.0)
+
+    hist_parser = sub.add_parser("fetch-history", help="Lấy ticks lịch sử từ MT5 vào DB")
+    hist_parser.add_argument("--symbol", required=True)
+    hist_parser.add_argument("--start", required=True, help="YYYY-MM-DD")
+    hist_parser.add_argument("--end", required=True, help="YYYY-MM-DD")
+    hist_parser.add_argument("--db-url", required=True)
+    hist_parser.add_argument("--batch", type=int, default=2000)
+    hist_parser.add_argument("--max-days", type=int, default=1)
+
+    sub.add_parser("list-symbols", help="Liệt kê symbol khả dụng trong MT5")
+
+    backtest_ma_parser = sub.add_parser("backtest-ma", help="Backtest nâng cao MA crossover")
+    backtest_ma_parser.add_argument("--db-url", required=True)
+    backtest_ma_parser.add_argument("--symbol", required=True)
+    backtest_ma_parser.add_argument("--start", required=True)
+    backtest_ma_parser.add_argument("--end", required=True)
+    backtest_ma_parser.add_argument("--preset", choices=list(strategy_presets.PRESETS.keys()), help="Chọn preset chiến lược")
+    backtest_ma_parser.add_argument("--fast", type=int, default=21)
+    backtest_ma_parser.add_argument("--slow", type=int, default=89)
+    backtest_ma_parser.add_argument("--timeframe", default="5min")
+    backtest_ma_parser.add_argument("--ma-type", default="ema", choices=["sma", "ema"])
+    backtest_ma_parser.add_argument("--trend", type=int, default=200)
+    backtest_ma_parser.add_argument("--risk-pct", type=float, default=1.0)
+    backtest_ma_parser.add_argument("--capital", type=float, default=10000.0)
+    backtest_ma_parser.add_argument("--trail-trigger-atr", type=float, default=1.0)
+    backtest_ma_parser.add_argument("--trail-atr-mult", type=float, default=1.0)
+    backtest_ma_parser.add_argument("--spread-atr-max", type=float, default=0.2)
+    backtest_ma_parser.add_argument("--reverse-exit", action="store_true")
+    backtest_ma_parser.add_argument("--market-state-window", type=int, default=20)
+    backtest_ma_parser.add_argument("--sl-atr", type=float, default=2.0)
+    backtest_ma_parser.add_argument("--tp-atr", type=float, default=3.0)
+    backtest_ma_parser.add_argument("--volume", type=float, default=0.01)
+    backtest_ma_parser.add_argument("--contract-size", type=float, default=100.0)
+    backtest_ma_parser.add_argument("--sl-pips", type=float, default=None)
+    backtest_ma_parser.add_argument("--tp-pips", type=float, default=None)
+    backtest_ma_parser.add_argument("--pip-size", type=float, default=0.01)
+    backtest_ma_parser.add_argument("--size-from-risk", action="store_true")
+    backtest_ma_parser.add_argument("--momentum-type", choices=["macd", "pct"], default="macd")
+    backtest_ma_parser.add_argument("--momentum-window", type=int, default=14)
+    backtest_ma_parser.add_argument("--momentum-threshold", type=float, default=0.1)
+    backtest_ma_parser.add_argument("--macd-fast", type=int, default=12)
+    backtest_ma_parser.add_argument("--macd-slow", type=int, default=26)
+    backtest_ma_parser.add_argument("--macd-signal", type=int, default=9)
+    backtest_ma_parser.add_argument("--macd-threshold", type=float, default=0.0)
+    backtest_ma_parser.add_argument("--range-lookback", type=int, default=40)
+    backtest_ma_parser.add_argument("--range-min-atr", type=float, default=0.8)
+    backtest_ma_parser.add_argument("--range-min-points", type=float, default=0.5)
+    backtest_ma_parser.add_argument("--breakout-buffer-atr", type=float, default=0.5)
+    backtest_ma_parser.add_argument("--breakout-confirmation-bars", type=int, default=2)
+    backtest_ma_parser.add_argument("--atr-baseline-window", type=int, default=14)
+    backtest_ma_parser.add_argument("--atr-multiplier-min", type=float, default=0.8)
+    backtest_ma_parser.add_argument("--atr-multiplier-max", type=float, default=4.0)
+    backtest_ma_parser.add_argument("--trading-hours", default=None)
+
+    live_parser = sub.add_parser("run-live-ma", help="Chạy chiến lược MA Crossover realtime")
+    live_parser.add_argument("--db-url", required=True)
+    live_parser.add_argument("--symbol", default=None)
+    live_parser.add_argument("--preset", choices=list(strategy_presets.PRESETS.keys()), help="Chọn preset chiến lược")
+    live_parser.add_argument("--fast", type=int, default=21)
+    live_parser.add_argument("--slow", type=int, default=89)
+    live_parser.add_argument("--ma-type", default="ema", choices=["sma", "ema"])
+    live_parser.add_argument("--timeframe", default="1min")
+    live_parser.add_argument("--trend", type=int, default=200)
+    live_parser.add_argument("--spread-atr-max", type=float, default=0.2)
+    live_parser.add_argument("--reverse-exit", action="store_true")
+    live_parser.add_argument("--market-state-window", type=int, default=20)
+    live_parser.add_argument("--volume", type=float, default=0.10)
+    live_parser.add_argument("--capital", type=float, default=10000.0)
+    live_parser.add_argument("--risk-pct", type=float, default=1.0)
+    live_parser.add_argument("--contract-size", type=float, default=100.0)
+    live_parser.add_argument("--size-from-risk", action="store_true")
+    live_parser.add_argument("--ensure-history-hours", type=float, default=0.0,
+                             help="Tự fetch dữ liệu lịch sử n giờ gần nhất nếu DB thiếu")
+    live_parser.add_argument("--history-batch", type=int, default=2000)
+    live_parser.add_argument("--history-max-days", type=int, default=1)
+    live_parser.add_argument("--ingest-live-db", action="store_true",
+                             help="Trong quá trình live ghi thêm tick mới vào DB")
+    live_parser.add_argument("--sl-atr", type=float, default=2.0)
+    live_parser.add_argument("--tp-atr", type=float, default=3.0)
+    live_parser.add_argument("--sl-pips", type=float, default=None)
+    live_parser.add_argument("--tp-pips", type=float, default=None)
+    live_parser.add_argument("--pip-size", type=float, default=0.01)
+    live_parser.add_argument("--momentum-type", choices=["macd", "pct"], default="macd")
+    live_parser.add_argument("--momentum-window", type=int, default=14)
+    live_parser.add_argument("--momentum-threshold", type=float, default=0.1)
+    live_parser.add_argument("--macd-fast", type=int, default=12)
+    live_parser.add_argument("--macd-slow", type=int, default=26)
+    live_parser.add_argument("--macd-signal", type=int, default=9)
+    live_parser.add_argument("--macd-threshold", type=float, default=0.0)
+    live_parser.add_argument("--range-lookback", type=int, default=40)
+    live_parser.add_argument("--range-min-atr", type=float, default=0.8)
+    live_parser.add_argument("--range-min-points", type=float, default=0.5)
+    live_parser.add_argument("--breakout-buffer-atr", type=float, default=0.5)
+    live_parser.add_argument("--breakout-confirmation-bars", type=int, default=2)
+    live_parser.add_argument("--atr-baseline-window", type=int, default=14)
+    live_parser.add_argument("--atr-multiplier-min", type=float, default=0.8)
+    live_parser.add_argument("--atr-multiplier-max", type=float, default=4.0)
+    live_parser.add_argument("--trading-hours", default=None)
+    live_parser.add_argument("--poll", type=float, default=1.0)
+    live_parser.add_argument("--live", action="store_true", help="Bật gửi lệnh MT5 thật")
+
+    args = parser.parse_args()
+
+    if args.command == "ingest-live":
+        asyncio.run(ingest.ingest_live_ticks(db_url=args.db_url, symbol=args.symbol, interval=args.interval))
+    elif args.command == "fetch-history":
+        start = _parse_dt(args.start)
+        end = _parse_dt(args.end)
+        if start is None or end is None:
+            raise ValueError("--start và --end phải theo định dạng ISO8601 (YYYY-MM-DD)")
+        asyncio.run(
+            history.fetch_history(
+                symbol=args.symbol,
+                start=start,
+                end=end,
+                db_url=args.db_url,
+                batch=args.batch,
+                max_days=args.max_days,
+            )
+        )
+    elif args.command == "list-symbols":
+        history.list_available_symbols()
+    elif args.command == "backtest-tick":
+        asyncio.run(
+            backtest_ticks.run_backtest(
+                symbol=args.symbol,
+                start=_parse_dt(args.start),
+                end=_parse_dt(args.end),
+                csv_path=args.csv,
+                db_url=args.db_url,
+                short=args.short,
+                long=args.long,
+            )
+        )
+    elif args.command == "backtest-ma":
+        asyncio.run(
+            backtest_ma.run_backtest(
+                db_url=args.db_url,
+                symbol=args.symbol,
+                preset=args.preset,
+                start_str=args.start,
+                end_str=args.end,
+                fast=args.fast,
+                slow=args.slow,
+                timeframe=args.timeframe,
+                ma_type=args.ma_type,
+                trend=args.trend,
+                risk_pct=args.risk_pct,
+                capital=args.capital,
+                trail_trigger_atr=args.trail_trigger_atr,
+                trail_atr_mult=args.trail_atr_mult,
+                spread_atr_max=args.spread_atr_max,
+                reverse_exit=args.reverse_exit,
+                market_state_window=args.market_state_window,
+                sl_atr=args.sl_atr,
+                tp_atr=args.tp_atr,
+                volume=args.volume,
+                contract_size=args.contract_size,
+                sl_pips=args.sl_pips,
+                tp_pips=args.tp_pips,
+                pip_size=args.pip_size,
+                momentum_type=args.momentum_type,
+                momentum_window=args.momentum_window,
+                momentum_threshold=args.momentum_threshold,
+                macd_fast=args.macd_fast,
+                macd_slow=args.macd_slow,
+                macd_signal=args.macd_signal,
+                macd_threshold=args.macd_threshold,
+                size_from_risk=args.size_from_risk,
+                range_lookback=args.range_lookback,
+                range_min_atr=args.range_min_atr,
+                range_min_points=args.range_min_points,
+                breakout_buffer_atr=args.breakout_buffer_atr,
+                breakout_confirmation_bars=args.breakout_confirmation_bars,
+                atr_baseline_window=args.atr_baseline_window,
+                atr_multiplier_min=args.atr_multiplier_min,
+                atr_multiplier_max=args.atr_multiplier_max,
+                trading_hours=args.trading_hours,
+            )
+        )
+    elif args.command == "run-live-ma":
+        asyncio.run(
+            live_ma.run_live_strategy(
+                db_url=args.db_url,
+                symbol=args.symbol,
+                preset=args.preset,
+                fast=args.fast,
+                slow=args.slow,
+                ma_type=args.ma_type,
+                timeframe=args.timeframe,
+                trend=args.trend,
+                spread_atr_max=args.spread_atr_max,
+                reverse_exit=args.reverse_exit,
+                market_state_window=args.market_state_window,
+                volume=args.volume,
+                capital=args.capital,
+                risk_pct=args.risk_pct,
+                contract_size=args.contract_size,
+                size_from_risk=args.size_from_risk,
+                sl_atr=args.sl_atr,
+                tp_atr=args.tp_atr,
+                sl_pips=args.sl_pips,
+                tp_pips=args.tp_pips,
+                pip_size=args.pip_size,
+                momentum_type=args.momentum_type,
+                momentum_window=args.momentum_window,
+                momentum_threshold=args.momentum_threshold,
+                macd_fast=args.macd_fast,
+                macd_slow=args.macd_slow,
+                macd_signal=args.macd_signal,
+                macd_threshold=args.macd_threshold,
+                range_lookback=args.range_lookback,
+                range_min_atr=args.range_min_atr,
+                range_min_points=args.range_min_points,
+                breakout_buffer_atr=args.breakout_buffer_atr,
+                breakout_confirmation_bars=args.breakout_confirmation_bars,
+                atr_baseline_window=args.atr_baseline_window,
+                atr_multiplier_min=args.atr_multiplier_min,
+                atr_multiplier_max=args.atr_multiplier_max,
+                trading_hours=args.trading_hours,
+                poll=args.poll,
+                live=args.live,
+                ensure_history_hours=args.ensure_history_hours,
+                history_batch=args.history_batch,
+                history_max_days=args.history_max_days,
+                ingest_live_db=args.ingest_live_db,
+            )
+        )
+    else:  # pragma: no cover - fallback
+        parser.print_help()
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()

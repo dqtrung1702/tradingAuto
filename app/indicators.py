@@ -25,7 +25,8 @@ async def get_tick_data(storage: Storage,
         )
     ).order_by(ticks_table.c.time_msc)
 
-    async with storage._engine.connect() as conn:
+    await storage.ensure_initialized()
+    async with storage.engine.connect() as conn:
         result = await conn.execute(query)
         rows = result.fetchall()
 
