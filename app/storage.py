@@ -1,6 +1,6 @@
-from typing import Optional
 from typing import Optional, List, Dict
 import os
+from datetime import datetime, timezone
 
 from sqlalchemy import (
     MetaData,
@@ -11,8 +11,12 @@ from sqlalchemy import (
     Float,
     String,
     JSON,
+    UniqueConstraint,
+    select,
 )
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 DATABASE_URL_ENV = "DATABASE_URL"
 
@@ -28,6 +32,7 @@ ticks_table = Table(
     Column("bid", Float),
     Column("ask", Float),
     Column("last", Float),
+    UniqueConstraint("symbol", "time_msc", name="uq_ticks_symbol_time"),
 )
 
 trades_table = Table(
@@ -78,30 +83,44 @@ class Storage:
             # create tables if not exist
             await conn.run_sync(metadata.create_all)
 
+    async def ensure_initialized(self) -> None:
+        if self._engine is None:
+            await self.init()
+
+    @property
+    def engine(self) -> AsyncEngine:
+        if not self._engine:
+            raise RuntimeError("Storage not initialized")
+        return self._engine
+
     async def close(self) -> None:
         if self._engine is not None:
             await self._engine.dispose()
             self._engine = None
 
-    async def insert_ticks_batch(self, rows: List[Dict], batch_size: int = 1000) -> None:
+    async def insert_ticks_batch(self, rows: List[Dict], batch_size: int = 1000, quiet: bool = False) -> None:
         """Insert ticks in batches. Each row is dict matching ticks_table columns."""
         if not self._engine:
             raise RuntimeError("Storage not initialized")
-            
-        # Log first row of first batch for verification
+
         if rows:
+            for row in rows:
+                _ensure_datetime(row)
+        if rows and not quiet:
             print("\nVerifying first row before DB insert:")
             first_row = rows[0]
             for k, v in first_row.items():
                 print(f"  {k}: {v} (type: {type(v)})")
 
-        # Execute in batches to avoid too large transactions
+        dialect_name = self._engine.dialect.name
         async with self._engine.begin() as conn:
             for i in range(0, len(rows), batch_size):
                 batch = rows[i : i + batch_size]
-                print(f"\nInserting batch {i//batch_size + 1} ({len(batch)} rows)...")
+                if not quiet:
+                    print(f"\nInserting batch {i//batch_size + 1} ({len(batch)} rows)...")
                 # Validate numeric values in batch
                 for row in batch:
+                    _ensure_datetime(row)
                     if not isinstance(row['time_msc'], int):
                         row['time_msc'] = int(row['time_msc'])
                     if row['bid'] is not None:
@@ -110,10 +129,65 @@ class Storage:
                         row['ask'] = float(row['ask'])
                     if row['last'] is not None:
                         row['last'] = float(row['last'])
-                await conn.execute(ticks_table.insert(), batch)
+                if dialect_name == "postgresql":
+                    stmt = pg_insert(ticks_table).on_conflict_do_nothing(index_elements=["symbol", "time_msc"])
+                    await conn.execute(stmt, batch)
+                elif dialect_name == "sqlite":
+                    stmt = sqlite_insert(ticks_table).on_conflict_do_nothing(index_elements=["symbol", "time_msc"])
+                    await conn.execute(stmt, batch)
+                else:
+                    await conn.execute(ticks_table.insert(), batch)
 
     async def insert_trade(self, side: str, price: float, time_msc: int, pnl: Optional[float] = None, meta: Optional[dict] = None) -> None:
         if not self._engine:
             raise RuntimeError("Storage not initialized")
         async with self._engine.begin() as conn:
             await conn.execute(trades_table.insert().values(side=side, price=price, time_msc=time_msc, pnl=pnl, meta=meta))
+
+    async def has_ticks_since(self, symbol: str, since_time_msc: int) -> bool:
+        await self.ensure_initialized()
+        stmt = (
+            select(ticks_table.c.id)
+            .where(ticks_table.c.symbol == symbol, ticks_table.c.time_msc >= since_time_msc)
+            .limit(1)
+        )
+        async with self.engine.connect() as conn:
+            result = await conn.execute(stmt)
+            return result.first() is not None
+
+    async def fetch_ticks_range(self, symbol: str, start_msc: int, end_msc: int) -> List[Dict]:
+        await self.ensure_initialized()
+        stmt = (
+            select(
+                ticks_table.c.symbol,
+                ticks_table.c.time_msc,
+                ticks_table.c.datetime,
+                ticks_table.c.bid,
+                ticks_table.c.ask,
+                ticks_table.c.last,
+            )
+            .where(
+                ticks_table.c.symbol == symbol,
+                ticks_table.c.time_msc >= start_msc,
+                ticks_table.c.time_msc <= end_msc,
+            )
+            .order_by(ticks_table.c.time_msc)
+        )
+        async with self.engine.connect() as conn:
+            result = await conn.execute(stmt)
+            rows = result.fetchall()
+        return [dict(row._mapping) for row in rows]
+
+
+def _ensure_datetime(row: Dict) -> None:
+    if row.get('datetime'):
+        return
+    ts = row.get('time_msc')
+    try:
+        ts_int = int(ts) if ts is not None else None
+    except (TypeError, ValueError):
+        ts_int = None
+    if ts_int is None or ts_int <= 0:
+        row['datetime'] = datetime.now(timezone.utc).isoformat()
+        return
+    row['datetime'] = datetime.fromtimestamp(ts_int / 1000, tz=timezone.utc).isoformat()
