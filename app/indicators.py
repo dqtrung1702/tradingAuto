@@ -101,13 +101,16 @@ def atr(df: pd.DataFrame, window: int = 14) -> pd.Series:
     return tr.rolling(window=window).mean()
 
 
-async def get_ma_series(storage: Storage,
-                       symbol: str, 
-                       start_time: datetime,
-                       end_time: datetime,
-                       timeframe: str = '1min',
-                       window: int = 20,
-                       ma_type: str = 'sma') -> pd.DataFrame:
+async def get_ma_series(
+    storage: Storage,
+    symbol: str,
+    start_time: datetime,
+    end_time: datetime,
+    timeframe: str = '1min',
+    window: int = 20,
+    ma_type: str = 'sma',
+    atr_window: Optional[int] = None,
+) -> pd.DataFrame:
     """Get moving average series for a symbol.
     
     Args:
@@ -127,9 +130,9 @@ async def get_ma_series(storage: Storage,
     
     # Resample to candles
     df = resample_ticks(df_ticks, timeframe)
-    
     # Calculate indicators
     df['ma'] = moving_average(df['close'], window, ma_type)
-    df['atr'] = atr(df[['high', 'low', 'close']], window)
+    atr_period = atr_window or window
+    df['atr'] = atr(df[['high', 'low', 'close']], atr_period)
     
     return df[['datetime', 'open', 'high', 'low', 'close', 'ma', 'atr', 'spread']]

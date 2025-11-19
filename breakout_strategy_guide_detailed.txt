@@ -1,0 +1,120 @@
+
+Breakout Strategy Configuration Guide
+====================================
+
+1. Introduction
+---------------
+This document describes a breakout trading strategy optimized for the XAUUSD symbol on the M5 timeframe.
+It includes a detailed configuration of the strategy's parameters, theoretical foundations, and mathematical
+formulas used to identify breakout events, confirm momentum, and manage risk.
+
+-----------------------------------
+2. Timeframe & General Settings
+-----------------------------------
+• **Timeframe**: 5-minute bars (M5)
+• **Moving Averages**:
+   - Fast: EMA(8)
+   - Slow: EMA(21)
+• **Capital**: $10,000
+• **Risk per Trade**: 1% of account equity
+• **Position Size**: Calculated dynamically using ATR and risk percentage
+
+Formula for position size (lot size):
+Lot Size = (Risk% × Capital) / (SL ATR × ATR × Contract Size)
+
+---------------------------------
+3. Trend Filter
+---------------------------------
+These parameters determine market conditions conducive to breakouts.
+
+• **EMA 200**: Provides long-term trend direction
+• **ADX (14)**: Measures strength of trend
+  - Formula:
+    ADX = EMA( | +DI - -DI | / (+DI + -DI) × 100 )
+  - threshold > 25 considered a strong trend
+• **Bollinger Band Width (BB Width)**:
+  Ensures market is not in consolidation.
+  - Formula:
+    BB_width = (Upper_BB - Lower_BB) / Middle_BB
+
+----------------------------------
+4. Volatility Filter
+----------------------------------
+ATR-based filters avoid false signals during low volatility periods.
+
+• **ATR Baseline Window**: 14
+• **ATR Multiplier Minimum**: 1.1
+• **ATR Multiplier Maximum**: 3.2
+• **Spread ATR Max**: 0.08
+
+ATR Formula:
+ATR_t = EMA( True Range, N )
+True Range = max(High_t - Low_t, |High_t - Close_{t-1}|, |Low_t - Close_{t-1}|)
+
+Spread ATR Ratio = (Ask - Bid) / ATR
+
+------------------------------------
+5. Breakout Conditions
+------------------------------------
+Defines logic to identify valid breakouts.
+
+• **Range Lookback**: 40 bars (n)
+• **Range Min ATR**: 0.8 × ATR
+• **Breakout Buffer**: 0.3 × ATR
+• **Confirmation Bars**: 1
+
+Logic:
+- High_t > Max(High_{t-n:t-1}) + (Breakout Buffer × ATR)
+- OR Low_t < Min(Low_{t-n:t-1}) - (Breakout Buffer × ATR)
+
+------------------------------------
+6. Momentum Confirmation
+------------------------------------
+Breakouts must be supported by momentum to avoid false signals.
+
+• **Momentum Type**: Hybrid RSI + MACD
+• **RSI Thresholds**:
+   - Long: RSI_t > 60
+   - Short: RSI_t < 40
+
+RSI Formula:
+RSI = 100 - (100 / (1 + RS)), where RS = Avg Gain / Avg Loss
+
+• **MACD Settings**: Fast = 12, Slow = 26, Signal = 9
+• **MACD Histogram Threshold**: 0.0002
+
+MACD Formula:
+MACD = EMA(price, fast) - EMA(price, slow)
+Histogram = MACD - Signal Line
+
+Momentum Condition:
+Enter only if (RSI and MACD both aligned in trend direction).
+
+--------------------------------------
+7. Trade Management
+--------------------------------------
+Defines how stop-loss and take-profit levels are set and adjusted.
+
+• **SL ATR**: 1.5 × ATR
+• **TP ATR**: 2.5 × ATR
+• **Trailing Stop Trigger**: at 1.8 × ATR
+• **Trailing Stop Multiplier**: 1.1
+
+Trailing Stop Formula:
+TSL = Entry ± (ATR × Trail Multiplier)
+
+------------------------------------
+8. Risk Guard
+------------------------------------
+Account protection rules:
+
+• Max Daily Loss = 3% of Capital
+• Max Consecutive Losses = 3
+• Max Losses per Session = 2
+• Cooldown Period = 60 minutes
+
+----------------------------------
+9. Summary
+----------------------------------
+This breakout strategy uses well-known technical tools such as ATR, RSI, MACD, and ADX to respond to changes in
+quality of price action and volatility. It is optimized with respect to XAUUSD historical tick data.

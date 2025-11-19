@@ -5,7 +5,6 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Awaitable, Callable, Dict, Optional
 
 from app.commands import history as history_cmd
-from app.constants import DEFAULT_US_TRADING_HOURS
 from app.config import get_settings
 from app.models import Quote
 from app.quote_service import QuoteService
@@ -44,6 +43,8 @@ async def run_live_strategy(
     macd_slow: int,
     macd_signal: int,
     macd_threshold: float,
+    rsi_threshold_long: float,
+    rsi_threshold_short: float,
     range_lookback: int,
     range_min_atr: float,
     range_min_points: float,
@@ -53,19 +54,27 @@ async def run_live_strategy(
     atr_multiplier_min: float,
     atr_multiplier_max: float,
     trading_hours: Optional[str],
+    adx_window: int,
+    adx_threshold: float,
     poll: float,
     live: bool,
     ensure_history_hours: float,
     history_batch: int,
     history_max_days: int,
     ingest_live_db: bool,
+    trail_trigger_atr: float,
+    trail_atr_mult: float,
+    max_daily_loss: Optional[float],
+    max_loss_streak: Optional[int],
+    max_losses_per_session: Optional[int],
+    cooldown_minutes: Optional[int],
     event_handler: Optional[Callable[[Dict[str, Any]], Awaitable[None] | None]] = None,
     quote_service: Optional[QuoteService] = None,
 ) -> None:
-    settings = get_settings()
+    base_settings = get_settings()
     storage = Storage(db_url)
     await storage.init()
-    resolved_symbol = symbol or settings.quote_symbol
+    resolved_symbol = symbol or base_settings.quote_symbol
     preset_cfg = resolve_preset(preset)
 
     if ensure_history_hours > 0:
@@ -78,8 +87,18 @@ async def run_live_strategy(
             history_max_days,
         )
 
-    local_quote_service = quote_service or QuoteService(settings)
-    owns_quote_service = quote_service is None
+    symbol_settings = base_settings.model_copy(update={"quote_symbol": resolved_symbol})
+    owns_quote_service = False
+    if quote_service:
+        current_symbol = getattr(getattr(quote_service, "_settings", None), "quote_symbol", None)
+        if current_symbol == resolved_symbol:
+            local_quote_service = quote_service
+        else:
+            local_quote_service = QuoteService(symbol_settings)
+            owns_quote_service = True
+    else:
+        local_quote_service = QuoteService(symbol_settings)
+        owns_quote_service = True
 
     cfg = MAConfig(
         symbol=resolved_symbol,
@@ -100,6 +119,8 @@ async def run_live_strategy(
     cfg.size_from_risk = size_from_risk
     cfg.sl_atr = preset_cfg.sl_atr if preset_cfg else sl_atr
     cfg.tp_atr = preset_cfg.tp_atr if preset_cfg else tp_atr
+    cfg.trail_trigger_atr = trail_trigger_atr
+    cfg.trail_atr_mult = trail_atr_mult
     cfg.momentum_type = preset_cfg.momentum_type if preset_cfg else momentum_type
     cfg.momentum_window = preset_cfg.momentum_window if preset_cfg else momentum_window
     cfg.momentum_threshold = preset_cfg.momentum_threshold if preset_cfg else momentum_threshold
@@ -122,7 +143,31 @@ async def run_live_strategy(
     elif preset_cfg and preset_cfg.trading_hours:
         cfg.trading_hours = [h.strip() for h in preset_cfg.trading_hours.split(',')]
     else:
-        cfg.trading_hours = [h.strip() for h in DEFAULT_US_TRADING_HOURS.split(',')]
+        cfg.trading_hours = None
+    cfg.adx_window = preset_cfg.adx_window if preset_cfg else adx_window
+    cfg.adx_threshold = preset_cfg.adx_threshold if preset_cfg else adx_threshold
+    cfg.rsi_threshold_long = (
+        preset_cfg.rsi_threshold_long if (preset_cfg and preset_cfg.rsi_threshold_long is not None) else rsi_threshold_long
+    )
+    cfg.rsi_threshold_short = (
+        preset_cfg.rsi_threshold_short if (preset_cfg and preset_cfg.rsi_threshold_short is not None) else rsi_threshold_short
+    )
+    cfg.max_daily_loss = (
+        preset_cfg.max_daily_loss if (preset_cfg and preset_cfg.max_daily_loss is not None) else max_daily_loss
+    )
+    cfg.max_consecutive_losses = (
+        preset_cfg.max_consecutive_losses
+        if (preset_cfg and preset_cfg.max_consecutive_losses is not None)
+        else max_loss_streak
+    )
+    cfg.max_losses_per_session = (
+        preset_cfg.max_losses_per_session
+        if (preset_cfg and preset_cfg.max_losses_per_session is not None)
+        else max_losses_per_session
+    )
+    cfg.cooldown_minutes = (
+        preset_cfg.cooldown_minutes if (preset_cfg and preset_cfg.cooldown_minutes is not None) else cooldown_minutes
+    )
 
     if sl_pips is not None and tp_pips is not None:
         setattr(cfg, 'sl_pips', float(sl_pips))

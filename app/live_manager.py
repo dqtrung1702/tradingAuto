@@ -8,11 +8,13 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import contextlib
+import logging
 from typing import Any, Deque, Dict, List, Optional, TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
 from .commands.live_ma import run_live_strategy
+from .storage import Storage
 
 if TYPE_CHECKING:  # pragma: no cover
     from .quote_service import QuoteService
@@ -51,6 +53,8 @@ class LiveStartRequest(BaseModel):
     size_from_risk: bool = False
     sl_atr: float = 2.0
     tp_atr: float = 3.0
+    trail_trigger_atr: float = 1.0
+    trail_atr_mult: float = 1.0
     sl_pips: Optional[float] = None
     tp_pips: Optional[float] = None
     pip_size: float = 0.01
@@ -61,6 +65,8 @@ class LiveStartRequest(BaseModel):
     macd_slow: int = 26
     macd_signal: int = 9
     macd_threshold: float = 0.0
+    rsi_threshold_long: float = 60.0
+    rsi_threshold_short: float = 40.0
     range_lookback: int = 40
     range_min_atr: float = 0.8
     range_min_points: float = 0.5
@@ -70,12 +76,18 @@ class LiveStartRequest(BaseModel):
     atr_multiplier_min: float = 0.8
     atr_multiplier_max: float = 4.0
     trading_hours: Optional[str] = None
+    adx_window: int = 14
+    adx_threshold: float = 0.0
     poll: float = 1.0
     live: bool = False
     ensure_history_hours: float = 0.0
     history_batch: int = 2000
     history_max_days: int = 1
     ingest_live_db: bool = False
+    max_daily_loss: Optional[float] = None
+    max_loss_streak: Optional[int] = None
+    max_losses_per_session: Optional[int] = None
+    cooldown_minutes: Optional[int] = None
 
 
 class LiveStatus(BaseModel):
@@ -89,6 +101,9 @@ class LiveStatus(BaseModel):
     last_signal: Optional[Dict[str, Any]]
     waiting_reason: Optional[str]
     cli_command: Optional[str]
+
+
+logger = logging.getLogger(__name__)
 
 
 class LiveStrategyManager:
@@ -110,10 +125,12 @@ class LiveStrategyManager:
             config_data["db_url"] = db_url
             if not config_data.get("symbol"):
                 config_data["symbol"] = self._default_symbol
+            start_time = datetime.now(timezone.utc)
             sanitized_config = {k: v for k, v in config_data.items() if k != "db_url"}
+            await self._record_run_config(db_url, start_time, sanitized_config)
             self._state = _RuntimeState(
                 running=True,
-                started_at=datetime.now(timezone.utc),
+                started_at=start_time,
                 config=sanitized_config,
                 cumulative_pnl=0.0,
                 waiting_reason="Đang khởi động",
@@ -211,8 +228,11 @@ class LiveStrategyManager:
             elif event_type == "error":
                 # đánh dấu trạng thái lỗi
                 self._state.running = False
+                self._state.last_signal = event
+                self._state.waiting_reason = event.get("message") or "Đã dừng vì lỗi"
             elif event_type == "status":
                 self._state.waiting_reason = event.get("reason")
+                self._state.last_signal = event
 
             self._events.appendleft(event)
 
@@ -230,3 +250,14 @@ class LiveStrategyManager:
                 flag = f"--{key.replace('_', '-')}"
                 parts.extend([flag, str(value)])
         return " ".join(parts)
+
+    async def _record_run_config(self, db_url: str, started_at: datetime, config: Dict[str, Any]) -> None:
+        """Persist dashboard start parameters for later auditing/export."""
+        storage = Storage(db_url)
+        try:
+            await storage.init()
+            await storage.insert_run_config(started_at, config)
+        except Exception as exc:  # pragma: no cover - logging only
+            logger.warning("Không thể lưu cấu hình run: %s", exc)
+        finally:
+            await storage.close()

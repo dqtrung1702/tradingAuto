@@ -53,8 +53,8 @@ def main() -> None:
     backtest_ma_parser.add_argument("--trend", type=int, default=200)
     backtest_ma_parser.add_argument("--risk-pct", type=float, default=1.0)
     backtest_ma_parser.add_argument("--capital", type=float, default=10000.0)
-    backtest_ma_parser.add_argument("--trail-trigger-atr", type=float, default=1.0)
-    backtest_ma_parser.add_argument("--trail-atr-mult", type=float, default=1.0)
+    backtest_ma_parser.add_argument("--trail-trigger-atr", type=float, default=1.8)
+    backtest_ma_parser.add_argument("--trail-atr-mult", type=float, default=1.1)
     backtest_ma_parser.add_argument("--spread-atr-max", type=float, default=0.2)
     backtest_ma_parser.add_argument("--reverse-exit", action="store_true")
     backtest_ma_parser.add_argument("--market-state-window", type=int, default=20)
@@ -66,7 +66,7 @@ def main() -> None:
     backtest_ma_parser.add_argument("--tp-pips", type=float, default=None)
     backtest_ma_parser.add_argument("--pip-size", type=float, default=0.01)
     backtest_ma_parser.add_argument("--size-from-risk", action="store_true")
-    backtest_ma_parser.add_argument("--momentum-type", choices=["macd", "pct"], default="macd")
+    backtest_ma_parser.add_argument("--momentum-type", choices=["macd", "pct", "hybrid"], default="hybrid")
     backtest_ma_parser.add_argument("--momentum-window", type=int, default=14)
     backtest_ma_parser.add_argument("--momentum-threshold", type=float, default=0.1)
     backtest_ma_parser.add_argument("--macd-fast", type=int, default=12)
@@ -82,6 +82,16 @@ def main() -> None:
     backtest_ma_parser.add_argument("--atr-multiplier-min", type=float, default=0.8)
     backtest_ma_parser.add_argument("--atr-multiplier-max", type=float, default=4.0)
     backtest_ma_parser.add_argument("--trading-hours", default=None)
+    backtest_ma_parser.add_argument("--adx-window", type=int, default=14)
+    backtest_ma_parser.add_argument("--adx-threshold", type=float, default=25.0)
+    backtest_ma_parser.add_argument("--rsi-threshold-long", type=float, default=60.0)
+    backtest_ma_parser.add_argument("--rsi-threshold-short", type=float, default=40.0)
+    backtest_ma_parser.add_argument("--max-daily-loss", type=float, default=None,
+                                    help="Giới hạn lỗ tuyệt đối mỗi ngày (USD)")
+    backtest_ma_parser.add_argument("--max-loss-streak", type=int, default=None)
+    backtest_ma_parser.add_argument("--max-losses-per-session", type=int, default=None)
+    backtest_ma_parser.add_argument("--cooldown-minutes", type=int, default=None,
+                                    help="Số phút tạm dừng trade sau khi vi phạm guard")
 
     live_parser = sub.add_parser("run-live-ma", help="Chạy chiến lược MA Crossover realtime")
     live_parser.add_argument("--db-url", required=True)
@@ -108,10 +118,12 @@ def main() -> None:
                              help="Trong quá trình live ghi thêm tick mới vào DB")
     live_parser.add_argument("--sl-atr", type=float, default=2.0)
     live_parser.add_argument("--tp-atr", type=float, default=3.0)
+    live_parser.add_argument("--trail-trigger-atr", type=float, default=1.8)
+    live_parser.add_argument("--trail-atr-mult", type=float, default=1.1)
     live_parser.add_argument("--sl-pips", type=float, default=None)
     live_parser.add_argument("--tp-pips", type=float, default=None)
     live_parser.add_argument("--pip-size", type=float, default=0.01)
-    live_parser.add_argument("--momentum-type", choices=["macd", "pct"], default="macd")
+    live_parser.add_argument("--momentum-type", choices=["macd", "pct", "hybrid"], default="hybrid")
     live_parser.add_argument("--momentum-window", type=int, default=14)
     live_parser.add_argument("--momentum-threshold", type=float, default=0.1)
     live_parser.add_argument("--macd-fast", type=int, default=12)
@@ -127,6 +139,14 @@ def main() -> None:
     live_parser.add_argument("--atr-multiplier-min", type=float, default=0.8)
     live_parser.add_argument("--atr-multiplier-max", type=float, default=4.0)
     live_parser.add_argument("--trading-hours", default=None)
+    live_parser.add_argument("--adx-window", type=int, default=14)
+    live_parser.add_argument("--adx-threshold", type=float, default=25.0)
+    live_parser.add_argument("--rsi-threshold-long", type=float, default=60.0)
+    live_parser.add_argument("--rsi-threshold-short", type=float, default=40.0)
+    live_parser.add_argument("--max-daily-loss", type=float, default=None)
+    live_parser.add_argument("--max-loss-streak", type=int, default=None)
+    live_parser.add_argument("--max-losses-per-session", type=int, default=None)
+    live_parser.add_argument("--cooldown-minutes", type=int, default=None)
     live_parser.add_argument("--poll", type=float, default=1.0)
     live_parser.add_argument("--live", action="store_true", help="Bật gửi lệnh MT5 thật")
 
@@ -151,18 +171,6 @@ def main() -> None:
         )
     elif args.command == "list-symbols":
         history.list_available_symbols()
-    elif args.command == "backtest-tick":
-        asyncio.run(
-            backtest_ticks.run_backtest(
-                symbol=args.symbol,
-                start=_parse_dt(args.start),
-                end=_parse_dt(args.end),
-                csv_path=args.csv,
-                db_url=args.db_url,
-                short=args.short,
-                long=args.long,
-            )
-        )
     elif args.command == "backtest-ma":
         asyncio.run(
             backtest_ma.run_backtest(
@@ -207,6 +215,14 @@ def main() -> None:
                 atr_multiplier_min=args.atr_multiplier_min,
                 atr_multiplier_max=args.atr_multiplier_max,
                 trading_hours=args.trading_hours,
+                adx_window=args.adx_window,
+                adx_threshold=args.adx_threshold,
+                rsi_threshold_long=args.rsi_threshold_long,
+                rsi_threshold_short=args.rsi_threshold_short,
+                max_daily_loss=args.max_daily_loss,
+                max_loss_streak=args.max_loss_streak,
+                max_losses_per_session=args.max_losses_per_session,
+                cooldown_minutes=args.cooldown_minutes,
             )
         )
     elif args.command == "run-live-ma":
@@ -249,6 +265,14 @@ def main() -> None:
                 atr_multiplier_min=args.atr_multiplier_min,
                 atr_multiplier_max=args.atr_multiplier_max,
                 trading_hours=args.trading_hours,
+                adx_window=args.adx_window,
+                adx_threshold=args.adx_threshold,
+                rsi_threshold_long=args.rsi_threshold_long,
+                rsi_threshold_short=args.rsi_threshold_short,
+                max_daily_loss=args.max_daily_loss,
+                max_loss_streak=args.max_loss_streak,
+                max_losses_per_session=args.max_losses_per_session,
+                cooldown_minutes=args.cooldown_minutes,
                 poll=args.poll,
                 live=args.live,
                 ensure_history_hours=args.ensure_history_hours,

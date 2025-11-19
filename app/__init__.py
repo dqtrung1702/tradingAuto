@@ -1,3 +1,3 @@
 """
-Realtime XAUUSDc quote service package.
+Realtime XAUUSD quote service package.
 """
