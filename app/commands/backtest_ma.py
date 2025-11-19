@@ -3,13 +3,12 @@
 
 from __future__ import annotations
 
-import csv
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict
 
 import pandas as pd
+from uuid import uuid4
 
-from app.constants import DEFAULT_US_TRADING_HOURS
 from app.storage import Storage
 from app.strategy_presets import resolve_preset
 from app.strategies.ma_crossover import MAConfig, MACrossoverStrategy
@@ -119,7 +118,7 @@ async def run_backtest(
     elif preset_cfg and preset_cfg.trading_hours:
         config.trading_hours = [h.strip() for h in preset_cfg.trading_hours.split(',')]
     else:
-        config.trading_hours = [h.strip() for h in DEFAULT_US_TRADING_HOURS.split(',')]
+        config.trading_hours = None
     config.adx_window = preset_cfg.adx_window if preset_cfg else adx_window
     config.adx_threshold = preset_cfg.adx_threshold if preset_cfg else adx_threshold
     config.rsi_threshold_long = (
@@ -179,6 +178,7 @@ async def run_backtest(
             entry_bar = df.iloc[i + 1]
             entry_price = float(entry_bar['open'])
             atr_val = float(entry_bar['atr'])
+            entry_time = _to_datetime(entry_bar['datetime'])
 
             if sl_pips is not None:
                 sl = entry_price - float(sl_pips) * pip_size
@@ -204,30 +204,32 @@ async def run_backtest(
                 bar = df.iloc[j]
                 if float(bar['low']) <= sl:
                     exit_price = sl
-                    exit_time = bar['datetime']
+                    exit_time = _to_datetime(bar['datetime'])
                     break
                 if float(bar['high']) >= tp:
                     exit_price = tp
-                    exit_time = bar['datetime']
+                    exit_time = _to_datetime(bar['datetime'])
                     break
                 if j + 1 < len(df) and int(df.iloc[j]['action']) == -2:
                     exit_bar = df.iloc[j + 1]
                     exit_price = float(exit_bar['open'])
-                    exit_time = exit_bar['datetime']
+                    exit_time = _to_datetime(exit_bar['datetime'])
                     break
                 j += 1
             if exit_price is None:
                 exit_price = float(df.iloc[-1]['close'])
-                exit_time = df.iloc[-1]['datetime']
+                exit_time = _to_datetime(df.iloc[-1]['datetime'])
 
             pnl = float(exit_price) - entry_price
             pct = pnl / entry_price if entry_price != 0 else 0.0
             trades.append({
                 'side': 'buy',
-                'entry_time': entry_bar['datetime'],
+                'entry_time': entry_time,
                 'entry_price': entry_price,
                 'exit_time': exit_time,
                 'exit_price': exit_price,
+                'stop_loss': sl,
+                'take_profit': tp,
                 'pnl': pnl,
                 'pct': pct,
                 'volume': trade_volume,
@@ -240,6 +242,7 @@ async def run_backtest(
             entry_bar = df.iloc[i + 1]
             entry_price = float(entry_bar['open'])
             atr_val = float(entry_bar['atr'])
+            entry_time = _to_datetime(entry_bar['datetime'])
             if sl_pips is not None:
                 sl = entry_price + float(sl_pips) * pip_size
             else:
@@ -264,30 +267,32 @@ async def run_backtest(
                 bar = df.iloc[j]
                 if float(bar['high']) >= sl:
                     exit_price = sl
-                    exit_time = bar['datetime']
+                    exit_time = _to_datetime(bar['datetime'])
                     break
                 if float(bar['low']) <= tp:
                     exit_price = tp
-                    exit_time = bar['datetime']
+                    exit_time = _to_datetime(bar['datetime'])
                     break
                 if j + 1 < len(df) and int(df.iloc[j]['action']) == 2:
                     exit_bar = df.iloc[j + 1]
                     exit_price = float(exit_bar['open'])
-                    exit_time = exit_bar['datetime']
+                    exit_time = _to_datetime(exit_bar['datetime'])
                     break
                 j += 1
             if exit_price is None:
                 exit_price = float(df.iloc[-1]['close'])
-                exit_time = df.iloc[-1]['datetime']
+                exit_time = _to_datetime(df.iloc[-1]['datetime'])
 
             pnl = entry_price - float(exit_price)
             pct = pnl / entry_price if entry_price != 0 else 0.0
             trades.append({
                 'side': 'sell',
-                'entry_time': entry_bar['datetime'],
+                'entry_time': entry_time,
                 'entry_price': entry_price,
                 'exit_time': exit_time,
                 'exit_price': exit_price,
+                'stop_loss': sl,
+                'take_profit': tp,
                 'pnl': pnl,
                 'pct': pct,
                 'volume': trade_volume,
@@ -298,17 +303,33 @@ async def run_backtest(
 
         i += 1
 
-    safe_start = start_str.replace(':', '-').replace('/', '-').replace(' ', '_')
-    safe_end = end_str.replace(':', '-').replace('/', '-').replace(' ', '_')
-    out_file = f"backtest_{symbol}_{safe_start}_{safe_end}.csv"
-    with open(out_file, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=['side','entry_time','entry_price','exit_time','exit_price','pnl','pct','volume','usd_pnl']
-        )
-        writer.writeheader()
-        for trade in trades:
-            writer.writerow(trade)
+    run_id = f"bt_{symbol}_{uuid4().hex[:8]}"
+    run_start = _ensure_aware(start)
+    run_end = _ensure_aware(end)
+    now_utc = datetime.now(timezone.utc)
+    db_rows = [
+        {
+            "run_id": run_id,
+            "symbol": symbol,
+            "preset": preset,
+            "side": trade["side"],
+            "entry_time": trade["entry_time"],
+            "exit_time": trade["exit_time"],
+            "entry_price": trade["entry_price"],
+            "exit_price": trade["exit_price"],
+            "stop_loss": trade["stop_loss"],
+            "take_profit": trade["take_profit"],
+            "volume": trade["volume"],
+            "pnl": trade["pnl"],
+            "pct": trade["pct"],
+            "usd_pnl": trade["usd_pnl"],
+            "run_start": run_start,
+            "run_end": run_end,
+            "created_at": now_utc,
+        }
+        for trade in trades
+    ]
+    await storage.insert_backtest_trades(db_rows)
 
     total = len(trades)
     wins = sum(1 for t in trades if t['pnl'] > 0)
@@ -326,7 +347,8 @@ async def run_backtest(
         'avg_pnl': avg_pnl,
         'total_usd_pnl': total_usd_pnl,
         'avg_usd_pnl': avg_usd_pnl,
-        'csv_path': out_file,
+        'db_run_id': run_id,
+        'stored_trades': len(db_rows),
     }
 
     if not return_summary:
@@ -339,8 +361,24 @@ async def run_backtest(
         else:
             print(f'Tổng PnL (USD): {total_usd_pnl:.2f} với volume={volume}, contract_size={contract_size}')
         print(f'Trung bình/lệnh (USD): {avg_usd_pnl:.2f}')
-        print(f'Đã lưu CSV: {out_file}')
+        print(f'Đã lưu {len(db_rows)} lệnh vào bảng backtest_trades (run_id={run_id})')
 
     await storage.close()
     if return_summary:
         return summary
+
+
+def _to_datetime(value) -> datetime:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, pd.Timestamp):
+        dt = value.to_pydatetime()
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        dt = datetime.fromisoformat(value)
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    raise TypeError(f"Không thể chuyển '{value}' sang datetime")
+
+
+def _ensure_aware(dt: datetime) -> datetime:
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)

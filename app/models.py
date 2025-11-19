@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 class Quote(BaseModel):
     """Payload quote đã chuẩn hoá trả về client."""
 
-    symbol: str = Field(description="Mã ticker, ví dụ XAUUSDc=X")
+    symbol: str = Field(description="Mã ticker, ví dụ XAUUSD=X")
     price: Optional[float] = Field(default=None, description="Giá giao dịch gần nhất")
     bid: Optional[float] = Field(default=None, description="Giá bid")
     ask: Optional[float] = Field(default=None, description="Giá ask")

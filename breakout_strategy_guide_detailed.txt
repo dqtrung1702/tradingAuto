@@ -4,7 +4,7 @@ Breakout Strategy Configuration Guide
 
 1. Introduction
 ---------------
-This document describes a breakout trading strategy optimized for the XAUUSDc symbol on the M5 timeframe.
+This document describes a breakout trading strategy optimized for the XAUUSD symbol on the M5 timeframe.
 It includes a detailed configuration of the strategy's parameters, theoretical foundations, and mathematical
 formulas used to identify breakout events, confirm momentum, and manage risk.
 

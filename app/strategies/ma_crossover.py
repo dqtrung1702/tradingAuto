@@ -31,7 +31,7 @@ class MAConfig:
     timeframe: str = '5min'  # Chart timeframe
 
         # Trading parameters
-    symbol: str = 'XAUUSDc'
+    symbol: str = 'XAUUSD'
     volume: float = 0.01  # Fixed lot size
     capital: float = 10000.0  # Account size dùng để tính risk sizing
     risk_pct: float = 1.0  # % vốn rủi ro mỗi lệnh
@@ -183,13 +183,14 @@ class MACrossoverStrategy:
             atr_val = current_bar.atr if pd.notna(current_bar.atr) else None
             max_spread = (atr_val * coeff) if atr_val and atr_val > 0 else coeff
             if spread > max_spread:
+                atr_str = f"{atr_val:.5f}" if atr_val is not None else "NA"
                 await self._emit_status(
-                    f"Spread hiện tại {spread:.5f} > {max_spread:.5f} (ATR={atr_val:.5f if atr_val is not None else 'NA'}, hệ số={coeff})"
+                    f"Spread hiện tại {spread:.5f} > {max_spread:.5f} (ATR={atr_str}, hệ số={coeff})"
                 )
                 return
             allowed, guard_reason = self._risk_guard_allows(now_local)
             if not allowed:
-                await self._emit_status(guard_reason or "Risk guard đang kích hoạt", {"now": now.isoformat()})
+                await self._emit_status(guard_reason or "Risk guard đang kích hoạt", {"now": now_local.isoformat()})
                 return
 
             buy_signal, sell_signal, reason = self._check_signals(current_bar)
@@ -558,18 +559,18 @@ class MACrossoverStrategy:
             f"Mở lệnh {order_type} {self.config.symbol}: "
             f"Price={price:.5f}, SL={sl:.5f}, TP={tp:.5f}"
         )
-        await self._emit_event(
-            {
-                "type": "position_open",
-                "timestamp": datetime.now(timezone.utc),
-                "symbol": self.config.symbol,
-                "side": order_type,
-                "price": price,
-                "volume": volume,
-                "stop_loss": sl,
-                "take_profit": tp,
-            }
-        )
+        open_payload = {
+            "type": "position_open",
+            "timestamp": datetime.now(timezone.utc),
+            "symbol": self.config.symbol,
+            "side": order_type,
+            "price": price,
+            "volume": volume,
+            "stop_loss": sl,
+            "take_profit": tp,
+        }
+        await self._emit_event(open_payload)
+        await self._persist_trade_event("open", open_payload)
         
     async def _close_position(self, price: float) -> None:
         """Đóng vị thế hiện tại."""
@@ -614,19 +615,19 @@ class MACrossoverStrategy:
             f"Đóng lệnh {side} {self.config.symbol}: "
             f"Open={open_price:.5f}, Close={price:.5f}, PnL={pnl_value:.2f}"
         )
-        await self._emit_event(
-            {
-                "type": "position_close",
-                "timestamp": datetime.now(timezone.utc),
-                "symbol": self.config.symbol,
-                "side": side,
-                "open_price": open_price,
-                "close_price": price,
-                "volume": volume,
-                "pnl_points": pnl_points,
-                "pnl_value": pnl_value,
-            }
-        )
+        close_payload = {
+            "type": "position_close",
+            "timestamp": datetime.now(timezone.utc),
+            "symbol": self.config.symbol,
+            "side": side,
+            "open_price": open_price,
+            "close_price": price,
+            "volume": volume,
+            "pnl_points": pnl_points,
+            "pnl_value": pnl_value,
+        }
+        await self._emit_event(close_payload)
+        await self._persist_trade_event("close", close_payload)
         self._update_risk_after_close(pnl_value)
         self.current_position = None
         
@@ -663,6 +664,37 @@ class MACrossoverStrategy:
                 await result
         except Exception:
             self.logger.exception("Event handler lỗi")
+
+    async def _persist_trade_event(self, event_type: str, payload: Dict[str, Any]) -> None:
+        """Persist trade lifecycle events to the trades table."""
+        if not self.storage:
+            return
+        side = payload.get("side")
+        price = payload.get("price") or payload.get("close_price") or payload.get("open_price")
+        if side is None or price is None:
+            return
+        timestamp = payload.get("timestamp") or datetime.now(timezone.utc)
+        if isinstance(timestamp, datetime):
+            ts_utc = timestamp.astimezone(timezone.utc)
+        else:
+            try:
+                ts_utc = datetime.fromisoformat(str(timestamp))
+            except ValueError:
+                ts_utc = datetime.now(timezone.utc)
+        time_msc = int(ts_utc.timestamp() * 1000)
+        pnl_value = payload.get("pnl_value")
+        meta = {k: v for k, v in payload.items() if k != "type"}
+        meta["event_type"] = event_type
+        try:
+            await self.storage.insert_trade(
+                side=str(side),
+                price=float(price),
+                time_msc=time_msc,
+                pnl=float(pnl_value) if pnl_value is not None else None,
+                meta=meta,
+            )
+        except Exception as exc:
+            self.logger.error(f"Không thể lưu trade {event_type}: {exc}")
 
     async def _emit_status(self, reason: str, extra: Optional[Dict[str, Any]] = None) -> None:
         await self._emit_event(

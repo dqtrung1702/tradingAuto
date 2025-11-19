@@ -8,11 +8,13 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import contextlib
+import logging
 from typing import Any, Deque, Dict, List, Optional, TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
 from .commands.live_ma import run_live_strategy
+from .storage import Storage
 
 if TYPE_CHECKING:  # pragma: no cover
     from .quote_service import QuoteService
@@ -101,6 +103,9 @@ class LiveStatus(BaseModel):
     cli_command: Optional[str]
 
 
+logger = logging.getLogger(__name__)
+
+
 class LiveStrategyManager:
     def __init__(self, default_symbol: str) -> None:
         self._task: Optional[asyncio.Task] = None
@@ -120,10 +125,12 @@ class LiveStrategyManager:
             config_data["db_url"] = db_url
             if not config_data.get("symbol"):
                 config_data["symbol"] = self._default_symbol
+            start_time = datetime.now(timezone.utc)
             sanitized_config = {k: v for k, v in config_data.items() if k != "db_url"}
+            await self._record_run_config(db_url, start_time, sanitized_config)
             self._state = _RuntimeState(
                 running=True,
-                started_at=datetime.now(timezone.utc),
+                started_at=start_time,
                 config=sanitized_config,
                 cumulative_pnl=0.0,
                 waiting_reason="Đang khởi động",
@@ -221,8 +228,11 @@ class LiveStrategyManager:
             elif event_type == "error":
                 # đánh dấu trạng thái lỗi
                 self._state.running = False
+                self._state.last_signal = event
+                self._state.waiting_reason = event.get("message") or "Đã dừng vì lỗi"
             elif event_type == "status":
                 self._state.waiting_reason = event.get("reason")
+                self._state.last_signal = event
 
             self._events.appendleft(event)
 
@@ -240,3 +250,14 @@ class LiveStrategyManager:
                 flag = f"--{key.replace('_', '-')}"
                 parts.extend([flag, str(value)])
         return " ".join(parts)
+
+    async def _record_run_config(self, db_url: str, started_at: datetime, config: Dict[str, Any]) -> None:
+        """Persist dashboard start parameters for later auditing/export."""
+        storage = Storage(db_url)
+        try:
+            await storage.init()
+            await storage.insert_run_config(started_at, config)
+        except Exception as exc:  # pragma: no cover - logging only
+            logger.warning("Không thể lưu cấu hình run: %s", exc)
+        finally:
+            await storage.close()

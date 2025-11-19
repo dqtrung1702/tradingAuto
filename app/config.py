@@ -10,7 +10,7 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    quote_symbol: str = Field(default="XAUUSDc", description="Tên symbol như đã đăng ký trong MT5.")
+    quote_symbol: str = Field(default="XAUUSD", description="Tên symbol như đã đăng ký trong MT5.")
     poll_interval_seconds: float = Field(default=5.0)
     source_name: Optional[str] = Field(default=None, description="Ghi đè tên nguồn dữ liệu upstream.")
 

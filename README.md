@@ -1,11 +1,11 @@
-# XAUUSDc Realtime Quote Service
+# XAUUSD Realtime Quote Service
 
 Dịch vụ FastAPI nhỏ này kết nối tới terminal MetaTrader5 đang chạy trên máy, lấy dữ liệu giao dịch XAU/USD rồi phát lại qua REST và WebSocket theo thời gian thực.
 
 ## Tính năng
 - Kết nối trực tiếp tới MetaTrader5 để lấy tick và đồng bộ theo chu kỳ `5s` (có thể cấu hình).
-- REST endpoint `GET /quotes/xauusdc` trả về giá/bid/ask/biến động cùng mốc thời gian cập nhật.
-- WebSocket endpoint `GET /ws/xauusdc` phát quote mới ngay khi có dữ liệu.
+- REST endpoint `GET /quotes/xauusd` trả về giá/bid/ask/biến động cùng mốc thời gian cập nhật.
+- WebSocket endpoint `GET /ws/xauusd` phát quote mới ngay khi có dữ liệu.
 - Health check `GET /healthz`.
 
 ## Cách chạy
@@ -34,7 +34,7 @@ Ingest tick realtime từ MT5 vào DB (nếu bạn vẫn muốn ghi liên tục)
 ```bash
 python -m app.cli ingest-live \
   --db-url postgresql+asyncpg://user:pass@localhost:5432/mt5 \
-  --symbol XAUUSDc \
+  --symbol XAUUSD \
   --interval 1.0
 ```
 - `--db-url`: chuỗi kết nối async
@@ -46,7 +46,7 @@ Tải dữ liệu tick lịch sử từ MT5 và ghi vào DB (đã chống duplic
 
 ```bash
 python -m app.cli fetch-history \
-  --symbol XAUUSDc \
+  --symbol XAUUSD \
   --start 2025-01-01 \
   --end 2025-02-01 \
   --db-url postgresql+asyncpg://user:pass@localhost:5432/mt5 \
@@ -70,7 +70,7 @@ Backtest chiến lược breakout đầy đủ (range detection, ATR filter, EMA
 ```bash
 python -m app.cli backtest-ma \
   --db-url postgresql+asyncpg://user:pass@localhost:5432/mt5 \
-  --symbol XAUUSDc \
+  --symbol XAUUSD \
   --start 2025-11-05 --end 2025-11-08 \
   --fast 21 --slow 89 --timeframe 1min \
   --ma-type ema --trend 200 --spread-atr-max 0.2 \
@@ -83,9 +83,23 @@ python -m app.cli backtest-ma \
   --atr-baseline-window 14 --atr-multiplier-min 0.8 --atr-multiplier-max 3.5 \
   --size-from-risk
 ```
-- Xuất CSV `backtest_<symbol>_<start>_<end>.csv` với danh sách lệnh breakout mô phỏng.
+- Lưu toàn bộ lệnh breakout (entry/exit/SL/TP và PnL) vào bảng `backtest_trades` trong DB cùng `run_id` để tra cứu lại.
 - Có thể kết hợp thêm `--sl-pips/--tp-pips/--pip-size` hoặc `--momentum-type pct`.
-- `--trading-hours` mặc định dùng phiên Mỹ: `19:30-23:30,01:00-02:30`.
+- `--trading-hours` tùy chọn; nếu bỏ trống backtest sẽ xét toàn bộ phiên (24h) trừ khi preset có cấu hình riêng.
+
+### `resample_ticks_to_bars`
+Chuyển dữ liệu tick sang bảng OHLC (`bars_5m`) phục vụ tối ưu breakout nhanh hơn.
+
+```bash
+python resample_ticks_to_bars.py \
+  --db-url postgresql://user:pass@localhost:5432/mt5 \
+  --tick-table ticks \
+  --bars-table bars_5m \
+  --symbol XAUUSD \
+  --start 2025-11-01T00:00:00 --end 2025-11-19T00:00:00
+```
+- Script sẽ đọc tick theo symbol + khoảng thời gian, resample về chu kỳ mặc định `5min`, xoá bar trùng và ghi vào bảng `bars_5m`.
+- Sau khi đã có `bars_5m`, các script tối ưu (`optimize_wrap.py`, `optimize_breakout_params_v2.py`) sẽ chỉ query bảng này thay vì đọc nguyên bảng tick.
 
 ### `run-live-ma` (Breakout live)
 Chạy chiến lược breakout realtime (paper mặc định, thêm `--live` để gửi lệnh MT5 thật).
@@ -93,7 +107,7 @@ Chạy chiến lược breakout realtime (paper mặc định, thêm `--live` đ
 ```bash
 python -m app.cli run-live-ma \
   --db-url postgresql+asyncpg://user:pass@localhost:5432/mt5 \
-  --symbol XAUUSDc \
+  --symbol XAUUSD \
   --fast 21 --slow 89 --timeframe 1min \
   --ma-type ema --trend 200 \
   --spread-atr-max 0.2 --reverse-exit --market-state-window 20 \
@@ -109,7 +123,7 @@ python -m app.cli run-live-ma \
 ```
 - `--size-from-risk` tự tính volume dựa trên capital/risk_pct/contract_size/stop-distance.
 - `--range-*`, `--breakout-*`, `--atr-*` tinh chỉnh độ rộng range, buffer và ATR baseline dùng để xác nhận breakout.
-- `--trading-hours` đảm bảo bot chỉ trade trong khung giờ breakout (mặc định phiên Mỹ `19:30-23:30,01:00-02:30`).
+- `--trading-hours` đảm bảo bot chỉ trade trong khung giờ breakout; nếu không truyền (và preset không định nghĩa) bot sẽ chạy 24h.
 - Có thể chuyển `--momentum-type pct` nếu muốn xác nhận bằng %change thay vì MACD.
 - Khi bật `--live`, đảm bảo MT5 terminal đang chạy và tài khoản có quyền giao dịch.
 
@@ -121,10 +135,10 @@ python -m app.cli run-live-ma \
 - Khối “Trạng thái breakout” hiển thị quote, vị thế, tín hiệu cuối và lý do đang chờ (ví dụ “Range quá hẹp”, “MACD chưa xác nhận”).
 
 ### Cấu hình MetaTrader5
-1. Cài MetaTrader5 (terminal64) và đăng nhập tài khoản có quyền xem symbol XAUUSDc.
+1. Cài MetaTrader5 (terminal64) và đăng nhập tài khoản có quyền xem symbol XAUUSD.
 2. Đảm bảo terminal đang chạy trên cùng máy với dịch vụ hoặc cấu hình biến môi trường để thư viện `MetaTrader5` tự khởi tạo:
    ```bash
-   export QUOTE_SYMBOL=XAUUSDc         # Symbol đúng trong MT5 của bạn
+   export QUOTE_SYMBOL=XAUUSD         # Symbol đúng trong MT5 của bạn
    export MT5_LOGIN=<account_id>       # Tuỳ chọn
    export MT5_PASSWORD=<password>      # Tuỳ chọn
    export MT5_SERVER=<server_name>     # Tuỳ chọn
@@ -135,7 +149,7 @@ python -m app.cli run-live-ma \
 ## Biến môi trường
 | Tên | Mặc định | Diễn giải |
 | --- | --- | --- |
-| `QUOTE_SYMBOL` | `XAUUSDc` | Mã symbol chính xác trong MT5. |
+| `QUOTE_SYMBOL` | `XAUUSD` | Mã symbol chính xác trong MT5. |
 | `POLL_INTERVAL_SECONDS` | `5` | Khoảng thời gian giữa mỗi lần gọi tick. |
 | `SOURCE_NAME` | `MetaTrader5` | Ghi đè tên nguồn trong response. |
 | `MT5_LOGIN` | `None` | Login ID để initialize terminal (tuỳ chọn). |
@@ -146,14 +160,14 @@ python -m app.cli run-live-ma \
 > **Lưu ý MT5:** Thư viện `MetaTrader5` yêu cầu chạy trên cùng máy với terminal MT5 và hiện chỉ hỗ trợ Windows. Nếu deploy dịch vụ trên Linux/macos, hãy triển khai phần lấy dữ liệu trên một máy Windows rồi truyền dữ liệu về dịch vụ này (qua WebSocket, MQ hoặc HTTP nội bộ).
 
 ## Dọn các file rác / dữ liệu tạm
-Các lệnh backtest và tải lịch sử sẽ sinh ra nhiều file CSV như `backtest_XAUUSDc_*.csv`, `ticks_*last24h*.csv`. Chúng không cần commit và có thể xoá bằng:
+Các lệnh tải lịch sử sẽ sinh ra file CSV như `ticks_*last24h*.csv`. Chúng không cần commit và có thể xoá bằng:
 
 ```bash
-# Xoá toàn bộ backtest CSV + file tick tạm ở thư mục gốc
-rm -f backtest_XAUUSDc_*.csv ticks_*last24h*.csv
+# Xoá toàn bộ file tick tạm ở thư mục gốc
+rm -f ticks_*last24h*.csv
 ```
 
-Nếu muốn dọn sâu hơn (VD các file tạm nằm trong thư mục con), có thể dùng `find`:
+Nếu muốn dọn sâu hơn (VD các file tạm nằm trong thư mục con), có thể dùng `find` (các file backtest CSV cũ - nếu có - vẫn xoá an toàn):
 
 ```bash
 find . -maxdepth 1 -type f -name 'backtest_*.csv' -delete

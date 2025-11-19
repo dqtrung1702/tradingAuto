@@ -89,9 +89,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Dịch vụ quote realtime XAUUSDc",
+    title="Dịch vụ quote realtime XAUUSD",
     version="0.2.0",
-    description="Dịch vụ phát giá XAUUSDc thời gian thực từ MetaTrader5 cục bộ qua REST và WebSocket.",
+    description="Dịch vụ phát giá XAUUSD thời gian thực từ MetaTrader5 cục bộ qua REST và WebSocket.",
 )
 
 settings = get_settings()
@@ -136,7 +136,7 @@ async def _shutdown() -> None:
     logger.info("Quote service stopped.")
 
 
-@app.get("/quotes/xauusdc", response_model=Quote, summary="Lấy quote XAU/USD mới nhất")
+@app.get("/quotes/xauusd", response_model=Quote, summary="Lấy quote XAU/USD mới nhất")
 async def get_latest_quote() -> Quote:
     quote = await cache.get()
     if not quote:
@@ -150,8 +150,8 @@ async def health_check() -> HealthStatus:
     return HealthStatus(status="ok" if quote else "initializing", last_quote_timestamp=quote.updated_at if quote else None)
 
 
-@app.websocket("/ws/xauusdc")
-async def xauusdc_stream(websocket: WebSocket) -> None:
+@app.websocket("/ws/xauusd")
+async def xauusd_stream(websocket: WebSocket) -> None:
     await ws_manager.connect(websocket)
     try:
         latest = await cache.get()
@@ -381,7 +381,10 @@ def _build_backtest_cli(payload: BacktestRequest) -> str:
 
 
 def _parse_iso_dt(value: str) -> datetime:
-    dt = datetime.fromisoformat(value)
+    cleaned = value.strip()
+    if cleaned.upper().endswith("Z"):
+        cleaned = cleaned[:-1] + "+00:00"
+    dt = datetime.fromisoformat(cleaned)
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
@@ -425,6 +428,8 @@ DASHBOARD_HTML = """
         top: 0;
         color: #94a3b8;
       }
+      .tz-hint { font-size: 0.7rem; color: #94a3b8; display: inline-block; margin-left: 0.3rem; }
+      .tz-note strong { color: #facc15; }
     </style>
   </head>
   <body>
@@ -433,6 +438,7 @@ DASHBOARD_HTML = """
       Nhập vùng tích luỹ, tham số breakout và nhấn <strong>Start</strong> để chạy bot live hoặc dùng khung Backtest/FETCH history phía dưới.
       Mọi tham số sẽ được gửi tới chiến lược breakout (ATR filter, EMA trend, time filter, momentum...).
     </p>
+    <p class="note tz-note">Múi giờ hiển thị &amp; nhập liệu: <strong data-tz-label="text">Local time</strong></p>
     <section>
       <h2 style=\"margin-top:0\">Cấu hình breakout</h2>
       <p class=\"note\" style=\"margin-bottom:0.5rem;\">Chọn preset hoặc tuỳ chỉnh range, buffer, ATR filter và phiên giao dịch. Các giá trị này áp dụng cho cả Live/Backtest/Fetch.</p>
@@ -444,7 +450,7 @@ DASHBOARD_HTML = """
           </div>
           <div>
             <label>Symbol</label>
-            <input name=\"symbol\" placeholder=\"XAUUSDc\" value=\"__DEFAULT_SYMBOL__\" />
+            <input name=\"symbol\" placeholder=\"XAUUSD\" value=\"__DEFAULT_SYMBOL__\" />
           </div>
           <div>
             <label>Preset</label>
@@ -681,11 +687,11 @@ DASHBOARD_HTML = """
           <p class="note" style="margin-bottom:0.4rem;">Sử dụng toàn bộ tham số cấu hình phía trên. Nếu bỏ trống thời gian sẽ auto lấy 24h gần nhất.</p>
           <div class="flex">
             <div>
-              <label>Backtest start</label>
+              <label>Backtest start <span class="tz-hint" data-tz-label="suffix">(Local time)</span></label>
               <input name="backtest_start" type="datetime-local" />
             </div>
             <div>
-              <label>Backtest end</label>
+              <label>Backtest end <span class="tz-hint" data-tz-label="suffix">(Local time)</span></label>
               <input name="backtest_end" type="datetime-local" />
             </div>
           </div>
@@ -698,11 +704,11 @@ DASHBOARD_HTML = """
           <p class="note" style="margin-bottom:0.4rem;">Fetch tick về DB (copy_ticks_range) hoặc tải CSV theo số ngày đã nhập.</p>
           <div class="flex">
             <div>
-              <label>History start</label>
+              <label>History start <span class="tz-hint" data-tz-label="suffix">(Local time)</span></label>
               <input name="history_start" type="datetime-local" />
             </div>
             <div>
-              <label>History end</label>
+              <label>History end <span class="tz-hint" data-tz-label="suffix">(Local time)</span></label>
               <input name="history_end" type="datetime-local" />
             </div>
             <div>
@@ -792,10 +798,18 @@ DASHBOARD_HTML = """
       const bulkConfigCloseBtn = document.getElementById('bulk-config-close-btn');
       let presetCache = [];
       const DEFAULT_FETCH_TRADING_DAYS = 2;
+      const timezoneText = getTimezoneText();
+      const timezoneSuffix = timezoneText ? ` (${timezoneText})` : '';
+      document.querySelectorAll('[data-tz-label="text"]').forEach((el) => {
+        el.textContent = timezoneText;
+      });
+      document.querySelectorAll('[data-tz-label="suffix"]').forEach((el) => {
+        el.textContent = timezoneSuffix || '';
+      });
 
       const fieldHelp = {
         db_url: 'Chuỗi kết nối CSDL async (Postgres/SQLite). Ví dụ: postgresql+asyncpg://user:pass@host/db',
-        symbol: 'Mã giao dịch trong MT5, ví dụ XAUUSDc',
+        symbol: 'Mã giao dịch trong MT5, ví dụ XAUUSD',
         preset: 'Chọn bộ tham số tối ưu sẵn theo market regime (tự điền fast/slow, momentum...)',
         fast: 'Chu kỳ MA nhanh (số bar) được dùng làm trigger',
         slow: 'Chu kỳ MA chậm (số bar) để so sánh với MA nhanh',
@@ -1055,22 +1069,22 @@ DASHBOARD_HTML = """
         let end = form.backtest_end.value;
         if (!start || !end) {
           const now = new Date();
-          if (!end) {
-            end = new Date(now).toISOString().slice(0, 16);
-            form.backtest_end.value = end;
-          }
-          if (!start) {
-            const endDate = new Date(end);
-            const startDate = new Date(endDate.getTime() - 24 * 60 * 60 * 1000);
-            start = startDate.toISOString().slice(0, 16);
-            form.backtest_start.value = start;
-          }
+        if (!end) {
+          end = formatLocalInput(now);
+          form.backtest_end.value = end;
+        }
+        if (!start) {
+          const endDate = new Date(end);
+          const startDate = new Date(endDate.getTime() - 24 * 60 * 60 * 1000);
+          start = formatLocalInput(startDate);
+          form.backtest_start.value = start;
+        }
         }
         const payload = buildPayload(new FormData(form));
-        payload.start = start;
-        payload.end = end;
+        payload.start = normalizeDateInput(start);
+        payload.end = normalizeDateInput(end);
         payload.db_url = form.db_url.value;
-        payload.symbol = form.symbol.value || 'XAUUSDc';
+        payload.symbol = form.symbol.value || 'XAUUSD';
         backtestResult.textContent = 'Đang chạy backtest breakout...';
         try {
           const res = await fetch('/api/backtest/run', {
@@ -1098,13 +1112,13 @@ DASHBOARD_HTML = """
         let start = form.history_start.value;
         const now = new Date();
         if (!end) {
-          end = new Date(now).toISOString().slice(0, 16);
+          end = formatLocalInput(now);
           form.history_end.value = end;
         }
         if (!start) {
           const endDate = new Date(end);
           const startDate = subtractTradingDays(endDate, DEFAULT_FETCH_TRADING_DAYS);
-          start = startDate.toISOString().slice(0, 16);
+          start = formatLocalInput(startDate);
           form.history_start.value = start;
         }
         const batch = parseInt(form.history_batch.value || '2000', 10);
@@ -1119,9 +1133,9 @@ DASHBOARD_HTML = """
         }
         const payload = {
           db_url: dbUrl,
-          symbol: form.symbol.value || 'XAUUSDc',
-          start,
-          end,
+          symbol: form.symbol.value || 'XAUUSD',
+          start: normalizeDateInput(start),
+          end: normalizeDateInput(end),
           batch,
           max_days: maxDays,
         };
@@ -1278,7 +1292,7 @@ DASHBOARD_HTML = """
           `Số lệnh: ${data.total_trades} | Thắng: ${data.wins} | Thua: ${data.losses}`,
           `PnL (price units): ${formatNum(data.total_pnl, 6)} | Avg: ${formatNum(data.avg_pnl, 6)}`,
           `PnL (USD): ${formatNum(data.total_usd_pnl, 2)} | Avg: ${formatNum(data.avg_usd_pnl, 2)}`,
-          data.csv_path ? `CSV: ${data.csv_path}` : '',
+          data.db_run_id ? `Đã lưu ${data.stored_trades ?? data.total_trades} lệnh vào DB (run_id = ${data.db_run_id})` : '',
           data.cli_command ? `CLI: <code>${data.cli_command}</code>` : '',
         ].filter(Boolean).join('<br />');
       }
@@ -1294,9 +1308,42 @@ DASHBOARD_HTML = """
       function formatTimestamp(value) {
         if (!value) return '-';
         try {
-          return new Date(value).toLocaleString();
+          return new Date(value).toLocaleString() + timezoneSuffix;
         } catch (err) {
           return String(value);
+        }
+      }
+
+      function formatLocalInput(date) {
+        const d = new Date(date);
+        if (Number.isNaN(d.getTime())) return '';
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const hour = String(d.getHours()).padStart(2, '0');
+        const minute = String(d.getMinutes()).padStart(2, '0');
+        return `${year}-${month}-${day}T${hour}:${minute}`;
+      }
+
+      function normalizeDateInput(value) {
+        if (!value) return value;
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) return value;
+        return parsed.toISOString();
+      }
+
+      function getTimezoneText() {
+        try {
+          const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          const offsetMinutes = -new Date().getTimezoneOffset();
+          const sign = offsetMinutes >= 0 ? '+' : '-';
+          const abs = Math.abs(offsetMinutes);
+          const hours = String(Math.floor(abs / 60)).padStart(2, '0');
+          const minutes = String(abs % 60).padStart(2, '0');
+          const offset = `UTC${sign}${hours}:${minutes}`;
+          return tz ? `${tz} · ${offset}` : offset;
+        } catch (err) {
+          return 'UTC';
         }
       }
 
@@ -1379,9 +1426,7 @@ DASHBOARD_HTML = """
           } catch (err) {
             throw new Error('JSON không hợp lệ, vui lòng kiểm tra lại cú pháp');
           }
-          Object.entries(data || {}).forEach(([key, value]) => {
-            result[key] = coerceBulkValue(key, value, listFields);
-          });
+          flattenBulkConfig(data, result, listFields);
           return result;
         }
         rawText.split(/\\n+/).forEach((line, idx) => {
@@ -1402,6 +1447,17 @@ DASHBOARD_HTML = """
           result[key] = coerceBulkValue(key, value, listFields);
         });
         return result;
+      }
+
+      function flattenBulkConfig(source, target, listFields) {
+        if (!source || typeof source !== 'object') return;
+        Object.entries(source || {}).forEach(([key, value]) => {
+          if (value && typeof value === 'object' && !Array.isArray(value)) {
+            flattenBulkConfig(value, target, listFields);
+          } else {
+            target[key] = coerceBulkValue(key, value, listFields);
+          }
+        });
       }
 
       function coerceBulkValue(key, value, listFields) {
@@ -1498,7 +1554,7 @@ BREAKOUT_DASHBOARD_HTML = """
     <h1>Breakout Strategy Planner</h1>
     <p class="note">
       Chiến lược Breakout tập trung vào việc bắt đầu xu hướng mới ngay khi giá phá vỡ vùng tích lũy quan trọng. Trang này giúp bạn lập kế hoạch giao dịch
-      (entry/stop/take-profit, sizing) dựa trên vùng hỗ trợ/kháng cự vừa quan sát được và theo dõi quote XAUUSDc thời gian thực.
+      (entry/stop/take-profit, sizing) dựa trên vùng hỗ trợ/kháng cự vừa quan sát được và theo dõi quote XAUUSD thời gian thực.
     </p>
 
     <section>
@@ -1620,7 +1676,7 @@ BREAKOUT_DASHBOARD_HTML = """
       <h2>3. Quote realtime & checklist</h2>
       <div class="grid">
         <div>
-          <h3>Quote XAUUSDc</h3>
+          <h3>Quote XAUUSD</h3>
           <div id="quote-box">Đang tải...</div>
         </div>
         <div>
@@ -1769,13 +1825,13 @@ BREAKOUT_DASHBOARD_HTML = """
 
       async function refreshQuote() {
         try {
-          const res = await fetch('/quotes/xauusdc');
+          const res = await fetch('/quotes/xauusd');
           if (!res.ok) throw new Error('HTTP ' + res.status);
           const data = await res.json();
           quoteBox.innerHTML = [
             `Giá: <strong>${Number(data.price || data.bid || 0).toFixed(2)}</strong>`,
             `Bid / Ask: ${Number(data.bid || 0).toFixed(2)} / ${Number(data.ask || 0).toFixed(2)}`,
-            `Cập nhật: ${data.updated_at ? new Date(data.updated_at).toLocaleString() : '-'}`,
+            `Cập nhật: ${data.updated_at ? formatTimestamp(data.updated_at) : '-'}`,
           ].join('<br />');
         } catch (err) {
           quoteBox.textContent = 'Không thể tải quote: ' + err.message;

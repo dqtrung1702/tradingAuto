@@ -171,18 +171,6 @@ def main() -> None:
         )
     elif args.command == "list-symbols":
         history.list_available_symbols()
-    elif args.command == "backtest-tick":
-        asyncio.run(
-            backtest_ticks.run_backtest(
-                symbol=args.symbol,
-                start=_parse_dt(args.start),
-                end=_parse_dt(args.end),
-                csv_path=args.csv,
-                db_url=args.db_url,
-                short=args.short,
-                long=args.long,
-            )
-        )
     elif args.command == "backtest-ma":
         asyncio.run(
             backtest_ma.run_backtest(

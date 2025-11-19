@@ -5,7 +5,6 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Awaitable, Callable, Dict, Optional
 
 from app.commands import history as history_cmd
-from app.constants import DEFAULT_US_TRADING_HOURS
 from app.config import get_settings
 from app.models import Quote
 from app.quote_service import QuoteService
@@ -72,10 +71,10 @@ async def run_live_strategy(
     event_handler: Optional[Callable[[Dict[str, Any]], Awaitable[None] | None]] = None,
     quote_service: Optional[QuoteService] = None,
 ) -> None:
-    settings = get_settings()
+    base_settings = get_settings()
     storage = Storage(db_url)
     await storage.init()
-    resolved_symbol = symbol or settings.quote_symbol
+    resolved_symbol = symbol or base_settings.quote_symbol
     preset_cfg = resolve_preset(preset)
 
     if ensure_history_hours > 0:
@@ -88,8 +87,18 @@ async def run_live_strategy(
             history_max_days,
         )
 
-    local_quote_service = quote_service or QuoteService(settings)
-    owns_quote_service = quote_service is None
+    symbol_settings = base_settings.model_copy(update={"quote_symbol": resolved_symbol})
+    owns_quote_service = False
+    if quote_service:
+        current_symbol = getattr(getattr(quote_service, "_settings", None), "quote_symbol", None)
+        if current_symbol == resolved_symbol:
+            local_quote_service = quote_service
+        else:
+            local_quote_service = QuoteService(symbol_settings)
+            owns_quote_service = True
+    else:
+        local_quote_service = QuoteService(symbol_settings)
+        owns_quote_service = True
 
     cfg = MAConfig(
         symbol=resolved_symbol,
@@ -134,7 +143,7 @@ async def run_live_strategy(
     elif preset_cfg and preset_cfg.trading_hours:
         cfg.trading_hours = [h.strip() for h in preset_cfg.trading_hours.split(',')]
     else:
-        cfg.trading_hours = [h.strip() for h in DEFAULT_US_TRADING_HOURS.split(',')]
+        cfg.trading_hours = None
     cfg.adx_window = preset_cfg.adx_window if preset_cfg else adx_window
     cfg.adx_threshold = preset_cfg.adx_threshold if preset_cfg else adx_threshold
     cfg.rsi_threshold_long = (
