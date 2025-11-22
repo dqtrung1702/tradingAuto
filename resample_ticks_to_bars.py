@@ -7,7 +7,7 @@ Resample tick data into 5-minute bars and store them in a dedicated table.
 Usage:
 ------
 python resample_ticks_to_bars.py \
-  --db-url postgresql://user:pass@localhost:5432/mt5 \
+  --db-url postgresql://trader:admin@localhost:5432/mt5 \
   --tick-table ticks \
   --bars-table bars_5m \
   --symbol XAUUSD \

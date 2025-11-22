@@ -48,7 +48,7 @@ class LiveStartRequest(BaseModel):
     market_state_window: int = 20
     volume: float = 0.10
     capital: float = 10000.0
-    risk_pct: float = 1.0
+    risk_pct: float = 0.02
     contract_size: float = 100.0
     size_from_risk: bool = False
     sl_atr: float = 2.0
@@ -83,11 +83,14 @@ class LiveStartRequest(BaseModel):
     ensure_history_hours: float = 0.0
     history_batch: int = 2000
     history_max_days: int = 1
-    ingest_live_db: bool = False
+    ingest_live_db: bool = True
     max_daily_loss: Optional[float] = None
     max_loss_streak: Optional[int] = None
     max_losses_per_session: Optional[int] = None
     cooldown_minutes: Optional[int] = None
+    allow_buy: bool = True
+    allow_sell: bool = True
+    max_holding_minutes: Optional[int] = None
 
 
 class LiveStatus(BaseModel):
@@ -172,6 +175,13 @@ class LiveStrategyManager:
 
     async def get_status(self) -> LiveStatus:
         async with self._lock:
+            # Nếu quá lâu không có quote, gán waiting_reason gợi ý thị trường đóng hoặc mất nguồn giá
+            stale_seconds = None
+            if self._state.last_quote_time:
+                stale_seconds = (datetime.now(timezone.utc) - self._state.last_quote_time).total_seconds()
+            if stale_seconds is not None and stale_seconds > 300 and self._state.running:
+                self._state.waiting_reason = "Không có quote mới (có thể thị trường đang đóng hoặc mất kết nối MT5)"
+
             events = list(self._events)
             last_signal = self._state.last_signal or next(
                 (evt for evt in events if evt.get("type") in {"position_open", "position_close"}),
@@ -242,8 +252,12 @@ class LiveStrategyManager:
             if key in {"db_url"}:
                 parts.extend(["--db-url", str(value)])
             elif isinstance(value, bool):
-                if value:
-                    parts.append(f"--{key.replace('_', '-')}")
+                flag = f"--{key.replace('_', '-')}"
+                # allow_buy/allow_sell luôn xuất hiện (0/1) để không default về True
+                if key in {"allow_buy", "allow_sell"}:
+                    parts.extend([flag, "1" if value else "0"])
+                elif value:
+                    parts.append(flag)
             else:
                 if value is None:
                     continue

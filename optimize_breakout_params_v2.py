@@ -14,15 +14,15 @@ Supports:
 Example usage:
 --------------
 python optimize_breakout_params_v2.py \
---db-url postgresql://user:pass@localhost:5432/mt5 \
+--db-url postgresql://trader:admin@localhost:5432/mt5 \
 --table-name ticks \
 --symbol XAUUSD \
 --session us \
 --tz-offset 7 \
---start-time "2025-10-01" \
---end-time "2025-11-15" \
+--start-time "2025-09-01" \
+--end-time "2025-10-01" \
 --capital 10000 \
---risk-pct 0.01
+--risk-pct 0.02
 
 python optimize_breakout_params_v2.py \
 --db-url postgresql://trader:admin@localhost:5432/mt5 \
@@ -39,7 +39,7 @@ python optimize_breakout_params_v2.py \
   "ma_type": "ema",
   "volume": null,
   "capital": 10000.0,
-  "risk_pct": 0.1,
+  "risk_pct": 0.02,
   "size_from_risk": true,
   "breakout_conditions": {
     "range_lookback": 40,
@@ -195,7 +195,12 @@ def extract_session(bars, session):
 # Breakout Strategy Backtest (per params)
 # --------------------------------------------
 
-def evaluate_breakout(bars: pd.DataFrame, params: dict):
+def evaluate_breakout(
+    bars: pd.DataFrame,
+    params: dict,
+    capital: float = 10000.0,
+    risk_pct: float = 0.02,
+):
     if len(bars) < 100:
         return 0.0, 0.0, 0.0
 
@@ -275,9 +280,19 @@ def evaluate_breakout(bars: pd.DataFrame, params: dict):
         return 0.0, 0.0, 0.0
 
     R = pd.Series(trade_R, dtype=float)
-    sharpe = float((R.mean() / (R.std() + 1e-9)) * np.sqrt(len(R)))
-    dd = float((R.cumsum() - R.cumsum().cummax()).min())
-    return float(R.sum()), sharpe, dd
+    risk_amount = capital * risk_pct
+    trade_money = R * risk_amount
+
+    sharpe_money = float(
+        (trade_money.mean() / (trade_money.std() + 1e-9)) * np.sqrt(len(trade_money))
+    )
+    pnl_money = float(trade_money.sum())
+
+    equity_curve = capital + trade_money.cumsum()
+    equity_pct = equity_curve / capital
+    max_dd_pct = float((equity_pct - equity_pct.cummax()).min() * 100.0)
+
+    return pnl_money, sharpe_money, max_dd_pct
 
 # --------------------------------------------
 # Parameter Grid
@@ -368,8 +383,8 @@ def main():
     parser.add_argument("--start-time")
     parser.add_argument("--end-time")
     parser.add_argument("--symbol", default="XAUUSD")
-    parser.add_argument("--capital", type=float, default=10000)
-    parser.add_argument("--risk-pct", type=float, default=2)
+    parser.add_argument("--capital", type=float, default=10000.0)
+    parser.add_argument("--risk-pct", type=float, default=0.02)
     args = parser.parse_args()
 
     bars = load_bars_from_db(
@@ -390,20 +405,27 @@ def main():
     best = None
 
     for params in grid:
-        pnl_R, sharpe, dd = evaluate_breakout(bars_sess, params)
-        score = sharpe - abs(dd) * 0.1
+        pnl_money, sharpe, dd_pct = evaluate_breakout(
+            bars_sess,
+            params,
+            capital=args.capital,
+            risk_pct=args.risk_pct,
+        )
+        score = sharpe - abs(dd_pct) * 0.1
         if best is None or score > best["score"]:
             best = {
                 "params": params,
-                "pnl": pnl_R,
+                "pnl": pnl_money,
                 "sharpe": sharpe,
-                "dd": dd,
+                "dd": dd_pct,
                 "score": score,
             }
 
     print("\n🔥 Best Params:")
     print(json.dumps(best["params"], indent=2))
-    print(f"PnL (R): {best['pnl']:.2f}, Sharpe: {best['sharpe']:.2f}, Max DD: {best['dd']:.2f}")
+    print(
+        f"PnL: {best['pnl']:.2f}, Sharpe: {best['sharpe']:.2f}, Max DD (% capital): {best['dd']:.2f}%"
+    )
 
 if __name__ == "__main__":
     main()
