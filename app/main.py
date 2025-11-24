@@ -29,7 +29,7 @@ class BacktestRequest(BaseModel):
     timeframe: str = "5min"
     trend: int = 200
     risk_pct: float = 0.02
-    capital: float = 10000.0
+    capital: float = 100.0
     trail_trigger_atr: float = 1.8
     trail_atr_mult: float = 1.1
     spread_atr_max: float = 0.08
@@ -37,12 +37,10 @@ class BacktestRequest(BaseModel):
     market_state_window: int = 40
     sl_atr: float = 1.5
     tp_atr: float = 2.5
-    volume: float = 0.1
     contract_size: float = 100.0
     sl_pips: Optional[float] = None
     tp_pips: Optional[float] = None
     pip_size: float = 0.01
-    size_from_risk: bool = False
     momentum_type: str = "hybrid"
     momentum_window: int = 14
     momentum_threshold: float = 0.07
@@ -277,12 +275,11 @@ async def run_backtest_endpoint(payload: BacktestRequest) -> dict:
             market_state_window=payload.market_state_window,
             sl_atr=payload.sl_atr,
             tp_atr=payload.tp_atr,
-            volume=payload.volume,
             contract_size=payload.contract_size,
             sl_pips=payload.sl_pips,
             tp_pips=payload.tp_pips,
             pip_size=payload.pip_size,
-            size_from_risk=payload.size_from_risk,
+            size_from_risk=True,
             momentum_type=payload.momentum_type,
             momentum_window=payload.momentum_window,
             momentum_threshold=payload.momentum_threshold,
@@ -339,11 +336,14 @@ async def run_backtest_endpoint(payload: BacktestRequest) -> dict:
     except asyncio.CancelledError:
         raise HTTPException(status_code=499, detail="Backtest bị hủy")
     except Exception as exc:
+        logger.exception("Backtest failed")
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
         backtest_cancel_event = None
     if summary is None:
         summary = {}
+    if saved_id is None and isinstance(summary, dict):
+        saved_id = summary.get("saved_backtest_id") or summary.get("saved_config_id")
     if saved_id is not None:
         summary["saved_config_id"] = saved_id
     summary["cli_command"] = _build_backtest_cli(payload)
@@ -405,7 +405,6 @@ async def list_saved_configs(db_url: str, limit: int = 50) -> dict:
             select(
                 saved_backtests_table.c.id,
                 saved_backtests_table.c.symbol,
-                saved_backtests_table.c.preset,
                 saved_backtests_table.c.timeframe,
                 saved_backtests_table.c.fast,
                 saved_backtests_table.c.slow,
@@ -422,7 +421,6 @@ async def list_saved_configs(db_url: str, limit: int = 50) -> dict:
             {
                 "id": int(row.id),
                 "symbol": row.symbol,
-                "preset": row.preset,
                 "timeframe": row.timeframe,
                 "fast": row.fast,
                 "slow": row.slow,
@@ -489,7 +487,7 @@ async def fetch_history_endpoint(payload: FetchHistoryRequest) -> dict:
 def _build_backtest_cli(payload: BacktestRequest) -> str:
     parts = ["python", "-m", "app.cli", "backtest-ma"]
     data = payload.model_dump()
-    bool_fields = {"reverse_exit", "size_from_risk", "skip_reset_window"}
+    bool_fields = {"reverse_exit", "skip_reset_window"}
     for key, value in data.items():
         flag = f"--{key.replace('_', '-')}"
         if value is None:
@@ -663,6 +661,7 @@ DASHBOARD_HTML = """
       section { border: 1px solid #1e293b; padding: 1rem; margin-bottom: 1rem; border-radius: 8px; background-color: #1e293b; }
       label { display: block; margin-top: 0.5rem; font-size: 0.9rem; }
       input, select { width: 100%; padding: 0.4rem; border-radius: 4px; border: none; margin-top: 0.2rem; }
+      input[type=number] { max-width: 140px; }
       button { margin-top: 0.8rem; padding: 0.6rem 1.2rem; border: none; border-radius: 6px; cursor: pointer; background-color: #38bdf8; color: #0f172a; font-weight: bold; }
       #status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
       .event-list { max-height: 250px; overflow-y: auto; background-color: #0f172a; padding: 0.5rem; border-radius: 4px; font-size: 0.85rem; }
@@ -703,7 +702,7 @@ DASHBOARD_HTML = """
     <p class="note tz-note">Múi giờ hiển thị &amp; nhập liệu: <strong data-tz-label="text">Local time</strong></p>
     <section>
       <h2 style=\"margin-top:0\">Cấu hình breakout</h2>
-      <p class=\"note\" style=\"margin-bottom:0.5rem;\">Điền trực tiếp tham số (hoặc nạp config đã lưu). Không còn dùng preset cố định.</p>
+      <p class=\"note\" style=\"margin-bottom:0.5rem;\">Điền trực tiếp tham số hoặc nạp config đã lưu.</p>
       <form id=\"start-form\">
         <div class=\"flex\">
           <div>
@@ -733,6 +732,14 @@ DASHBOARD_HTML = """
               <input name="slow" type="number" value="21" />
             </div>
             <div>
+              <label>Side</label>
+              <select name="side_mode">
+                <option value="both" selected>Buy &amp; Sell</option>
+                <option value="buy">Chỉ BUY</option>
+                <option value="sell">Chỉ SELL</option>
+              </select>
+            </div>
+            <div>
               <label>MA type</label>
               <select name="ma_type">
                 <option value="ema" selected>EMA</option>
@@ -744,19 +751,14 @@ DASHBOARD_HTML = """
               <input name="timeframe" value="5min" />
             </div>
             <div>
-              <label>Volume (lot)</label>
-              <input name="volume" type="number" step="0.01" value="0.1" />
-            </div>
-            <div>
               <label>Capital</label>
-              <input name="capital" type="number" value="10000" />
+              <input name="capital" type="number" value="100" />
             </div>
             <div>
               <label>Risk % (fraction)</label>
               <input name="risk_pct" type="number" step="0.001" value="0.02" />
             </div>
           </div>
-          <label class="no-counter" style="display:block; margin-top:0.5rem;"><input type="checkbox" name="size_from_risk" checked /> Size theo % risk</label>
         </section>
 
         <section>
@@ -880,7 +882,7 @@ DASHBOARD_HTML = """
 
         <section>
           <h3>VI. Trade Management</h3>
-          <div class="flex">
+          <div class="flex" style="align-items:flex-start;">
             <div>
               <label>SL ATR</label>
               <input name="sl_atr" type="number" step="any" value="1.5" />
@@ -897,11 +899,12 @@ DASHBOARD_HTML = """
               <label>Trail ATR multiplier</label>
               <input name="trail_atr_mult" type="number" step="any" value="1.1" />
             </div>
-            <div>
-              <label class="no-counter" style="display:block; margin-top:1.2rem;">
-                <input type="checkbox" name="reverse_exit" /> Reverse exit khi có tín hiệu ngược
-              </label>
-              <small class="note">Bật để đóng/đảo chiều ngay khi xuất hiện tín hiệu ngược, thay vì chờ SL/TP.</small>
+            <div style="flex:1 1 260px;">
+              <label>Exit mode khi tín hiệu ngược</label>
+              <select name="reverse_exit_mode">
+                <option value="off" selected>Giữ lệnh (chờ SL/TP)</option>
+                <option value="close">Đóng lệnh khi có tín hiệu ngược</option>
+              </select>
             </div>
             <div>
               <label>Retry đặt lệnh (số lần)</label>
@@ -956,8 +959,6 @@ DASHBOARD_HTML = """
           </div>
           <!-- Luôn ghi tick realtime vào DB, bỏ lựa chọn -->
           <label class="no-counter" style="display:block;"><input type="checkbox" name="live" /> Gửi lệnh MT5 thật (live)</label>
-          <label class="no-counter" style="display:block;"><input type="checkbox" name="allow_buy" checked /> Cho phép BUY</label>
-          <label class="no-counter" style="display:block;"><input type="checkbox" name="allow_sell" checked /> Cho phép SELL</label>
         </section>
 
         <section>
@@ -1031,7 +1032,7 @@ DASHBOARD_HTML = """
           Bộ tham số tối ưu theo các tiêu chí trong dashboard:
           timeframe &amp; fast/slow EMA/MA type, trend EMA + market_state_window, khung giờ giao dịch từng phiên, ADX window/threshold,
           ATR baseline &amp; multiplier/spread guard, breakout range/buffer/confirmation, momentum MACD+RSI (window, threshold),
-          SL/TP ATR, trailing trigger/multiplier, risk_pct/capital/size_from_risk, cùng các guard về max_daily_loss/loss_streak/session/cooldown.
+          SL/TP ATR, trailing trigger/multiplier, risk_pct/capital, cùng các guard về max_daily_loss/loss_streak/session/cooldown.
         </p>
         <textarea id="bulk-config-input" placeholder="fast = 8&#10;slow = 21&#10;timeframe = 5min&#10;..."></textarea>
         <div class="flex modal-actions" style="gap:0.5rem;">
@@ -1121,7 +1122,6 @@ DASHBOARD_HTML = """
         slow: 'Chu kỳ MA chậm (số bar) để so sánh với MA nhanh',
         ma_type: 'Loại trung bình động: EMA phản ứng nhanh hơn, SMA mượt hơn',
         timeframe: 'Khung thời gian để resample tick (ví dụ 1min, 5min, 15min)',
-        volume: 'Khối lượng mặc định (lot). Nếu bật size theo % risk sẽ bị ghi đè',
         capital: 'Vốn quy đổi USD dùng để tính khối lượng khi bật size-from-risk',
         risk_pct: 'Tỷ lệ rủi ro mỗi lệnh (dạng thập phân, ví dụ 0.02 = 2% vốn)',
         ensure_history_hours: 'Số giờ dữ liệu tối thiểu cần có trong DB trước khi chạy. Thiếu sẽ tự fetch MT5',
@@ -1147,7 +1147,7 @@ DASHBOARD_HTML = """
         atr_multiplier_max: 'ATR phải nhỏ hơn baseline * hệ số này',
         trail_trigger_atr: 'ATR tại đó bật trailing stop',
         trail_atr_mult: 'Khoảng dịch SL mỗi lần trail = ATR * hệ số này',
-        reverse_exit: 'Bật để đóng/đảo chiều ngay khi tín hiệu ngược xuất hiện (không chờ SL/TP)',
+        reverse_exit_mode: 'Chọn hành vi khi xuất hiện tín hiệu ngược: giữ lệnh (SL/TP) hoặc đóng lệnh ngay (không đảo chiều).',
         max_daily_loss: 'Giới hạn lỗ tuyệt đối (USD) trong 1 ngày, vượt ngưỡng sẽ ngưng mở lệnh',
         max_loss_streak: 'Số lệnh thua liên tục tối đa trước khi bot tạm dừng',
         max_losses_per_session: 'Số lệnh thua tối đa trong một phiên giao dịch',
@@ -1160,7 +1160,6 @@ DASHBOARD_HTML = """
         contract_size: 'Hệ số quy đổi PnL (ví dụ XAUUSD ~100 oz/lot)',
         sl_atr: 'Hệ số ATR dùng để đặt Stop Loss',
         tp_atr: 'Hệ số ATR dùng để đặt Take Profit',
-        size_from_risk: 'Nếu bật, bot sẽ tính volume dựa trên capital/risk_pct/contract_size',
         // ingest_live_db: luôn bật, không cần hướng dẫn
         live: 'Bật để gửi lệnh thật tới MT5. Nếu tắt sẽ chạy chế độ paper',
         backtest_start: 'Thời điểm bắt đầu backtest (ISO 8601)',
@@ -1221,7 +1220,18 @@ DASHBOARD_HTML = """
         fetchHistoryBtn.addEventListener('click', runFetchHistory);
       }
       if (bulkConfigOpenBtn) {
-        bulkConfigOpenBtn.addEventListener('click', () => openBulkConfigModal());
+        bulkConfigOpenBtn.addEventListener('click', () => {
+          if (bulkConfigInput) {
+            const current = buildPayload(new FormData(form));
+            const lines = [];
+            Object.entries(current).forEach(([k, v]) => {
+              if (v === undefined || v === null || v === '') return;
+              lines.push(`${k} = ${v}`);
+            });
+            bulkConfigInput.value = lines.join("\\n");
+          }
+          openBulkConfigModal();
+        });
       }
       if (bulkConfigCloseBtn) {
         bulkConfigCloseBtn.addEventListener('click', () => closeBulkConfigModal());
@@ -1267,7 +1277,6 @@ DASHBOARD_HTML = """
             payload[key] = parseInt(numericVal, 10);
           } else if (
             [
-              'volume',
               'capital',
               'risk_pct',
               'spread_atr_max',
@@ -1299,11 +1308,27 @@ DASHBOARD_HTML = """
           }
         }
         // Các checkbox không xuất hiện trong FormData khi unchecked -> set thủ công
-        ['size_from_risk', 'live', 'allow_buy', 'allow_sell', 'reverse_exit'].forEach((name) => {
+        ['live'].forEach((name) => {
           if (Object.prototype.hasOwnProperty.call(form, name) && form[name]) {
             payload[name] = form[name].checked;
           }
         });
+        if (payload.reverse_exit_mode) {
+            payload.reverse_exit = payload.reverse_exit_mode === 'close';
+            delete payload.reverse_exit_mode;
+        }
+        const sideMode = form.side_mode?.value || 'both';
+        if (sideMode === 'buy') {
+          payload.allow_buy = true;
+          payload.allow_sell = false;
+        } else if (sideMode === 'sell') {
+          payload.allow_buy = false;
+          payload.allow_sell = true;
+        } else {
+          payload.allow_buy = true;
+          payload.allow_sell = true;
+        }
+        delete payload.side_mode;
         return payload;
       }
 
@@ -1343,6 +1368,20 @@ DASHBOARD_HTML = """
             control.value = value ?? '';
           }
         });
+        if (form.reverse_exit_mode) {
+          form.reverse_exit_mode.value = (suggestion.reverse_exit === true) ? 'close' : 'off';
+        }
+        if (form.side_mode) {
+          const allowBuy = suggestion.allow_buy;
+          const allowSell = suggestion.allow_sell;
+          let sideVal = 'both';
+          if (allowBuy === false && allowSell !== false) {
+            sideVal = 'sell';
+          } else if (allowSell === false && allowBuy !== false) {
+            sideVal = 'buy';
+          }
+          form.side_mode.value = sideVal;
+        }
       }
 
       
@@ -1365,7 +1404,14 @@ DASHBOARD_HTML = """
             body: JSON.stringify(payload),
             signal: backtestController.signal,
           });
-          const data = await res.json();
+          const rawText = await res.text();
+          let data = rawText;
+          try {
+            data = JSON.parse(rawText);
+          } catch (_) {
+            /* giữ nguyên text nếu không phải JSON */
+          }
+          console.error('Backtest response', res.status, data);
           if (!res.ok) {
             throw new Error(data.detail || 'Backtest thất bại');
           }

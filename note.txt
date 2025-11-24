@@ -15,12 +15,11 @@ python -m app.cli backtest-ma \
   --db-url postgresql+asyncpg://trader:admin@localhost:5432/mt5 \
   --symbol XAUUSD \
   --start 2025-11-05 --end 2025-11-08 \
-  --preset ema_21_89 \
+  --fast 21 --slow 89 \
   --momentum-type macd --macd-fast 12 --macd-slow 26 --macd-signal 9 --macd-threshold 0.0 \
   --sl-atr 2.0 --tp-atr 3.0 \
-  --volume 0.1 --capital 10000 --risk-pct 1.0 \
-  --size-from-risk
-  
+  --capital 100 --risk-pct 1.0
+
 python -m app.cli fetch-history  \
  --symbol XAUUSD   \
  --start 2025-11-13   \
@@ -35,8 +34,8 @@ python -m app.cli run-live-ma \
   --fast 10 --slow 50 --timeframe 1min \
   --ma-type sma --trend 200 --spread-atr-max 0.2 \
   --reverse-exit --market-state-window 20 \
-  --volume 0.10 --capital 10000 --risk-pct 1.0 \
-  --contract-size 100 --size-from-risk \
+  --capital 100 --risk-pct 1.0 \
+  --contract-size 100 \
   --sl-atr 2.0 --tp-atr 3.0 \
   --ensure-history-hours 24 --history-batch 2000 --history-max-days 5 \
   --ingest-live-db --poll 1.0 

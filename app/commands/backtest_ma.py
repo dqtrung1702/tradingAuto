@@ -20,10 +20,11 @@ async def run_backtest(
     *,
     db_url: str,
     symbol: str,
-    preset: Optional[str] = None,
     start_str: str,
     end_str: str,
     saved_config_id: Optional[int] = None,
+    saved_backtest_id: Optional[int] = None,
+    visible_start_str: Optional[str] = None,
     cancel_event: Optional[asyncio.Event] = None,
     max_holding_minutes: Optional[int] = None,
     fast: int,
@@ -32,7 +33,7 @@ async def run_backtest(
     ma_type: str,
     trend: int,
     risk_pct: float,
-    capital: float,
+    capital: float = 100.0,
     trail_trigger_atr: float,
     trail_atr_mult: float,
     spread_atr_max: float,
@@ -40,12 +41,12 @@ async def run_backtest(
     market_state_window: int,
     sl_atr: float,
     tp_atr: float,
-    volume: float,
+    volume: float = 0.1,
     contract_size: float,
     sl_pips: Optional[float],
     tp_pips: Optional[float],
     pip_size: float,
-    size_from_risk: bool,
+    size_from_risk: bool = True,
     momentum_type: str,
     momentum_window: int,
     momentum_threshold: float,
@@ -72,43 +73,132 @@ async def run_backtest(
     cooldown_minutes: Optional[int],
     allow_buy: bool,
     allow_sell: bool,
-    order_retry_times: int,
-    order_retry_delay_ms: int,
-    safety_entry_atr_mult: float,
-    spread_samples: int,
-    spread_sample_delay_ms: int,
-    allowed_deviation_points: int,
-    volatility_spike_atr_mult: float,
-    spike_delay_ms: int,
-    skip_reset_window: bool,
-    latency_min_ms: int,
-    latency_max_ms: int,
-    slippage_usd: float,
-    order_reject_prob: float,
-    base_spread_points: int,
-    spread_spike_chance: float,
-    spread_spike_min_points: int,
-    spread_spike_max_points: int,
-    slip_per_atr_ratio: float,
-    requote_prob: float,
-    offquotes_prob: float,
-    timeout_prob: float,
-    stop_hunt_chance: float,
-    stop_hunt_min_atr_ratio: float,
-    stop_hunt_max_atr_ratio: float,
-    missing_tick_chance: float,
+    order_retry_times: int = 1,
+    order_retry_delay_ms: int = 0,
+    safety_entry_atr_mult: float = 0.0,
+    spread_samples: int = 1,
+    spread_sample_delay_ms: int = 0,
+    allowed_deviation_points: int = 300,
+    volatility_spike_atr_mult: float = 0.0,
+    spike_delay_ms: int = 0,
+    skip_reset_window: bool = True,
+    latency_min_ms: int = 0,
+    latency_max_ms: int = 0,
+    slippage_usd: float = 0.0,
+    order_reject_prob: float = 0.0,
+    base_spread_points: int = 0,
+    spread_spike_chance: float = 0.0,
+    spread_spike_min_points: int = 0,
+    spread_spike_max_points: int = 0,
+    slip_per_atr_ratio: float = 0.0,
+    requote_prob: float = 0.0,
+    offquotes_prob: float = 0.0,
+    timeout_prob: float = 0.0,
+    stop_hunt_chance: float = 0.0,
+    stop_hunt_min_atr_ratio: float = 0.0,
+    stop_hunt_max_atr_ratio: float = 0.0,
+    missing_tick_chance: float = 0.0,
     return_summary: bool = False,
 ) -> None:
     start = datetime.fromisoformat(start_str)
     end = datetime.fromisoformat(end_str)
+    visible_start = datetime.fromisoformat(visible_start_str) if visible_start_str else start
+    if saved_backtest_id is not None:
+        saved_config_id = saved_backtest_id
     if end <= start:
         raise ValueError('--end phải lớn hơn --start')
 
     storage = Storage(db_url)
     await storage.init()
 
-    # preset bị vô hiệu hoá: luôn dùng cấu hình nhập tay/saved config
-    preset_cfg = None
+    # Auto-link backtest results với saved_backtests dựa trên hash cấu hình
+    if saved_config_id is None:
+        config_payload = {
+            "symbol": symbol,
+            "fast": fast,
+            "slow": slow,
+            "ma_type": ma_type,
+            "timeframe": timeframe,
+            "trend": trend,
+            "risk_pct": risk_pct,
+            "capital": capital,
+            "trail_trigger_atr": trail_trigger_atr,
+            "trail_atr_mult": trail_atr_mult,
+            "spread_atr_max": spread_atr_max,
+            "reverse_exit": reverse_exit,
+            "market_state_window": market_state_window,
+            "sl_atr": sl_atr,
+            "tp_atr": tp_atr,
+            "volume": volume,
+            "contract_size": contract_size,
+            "sl_pips": sl_pips,
+            "tp_pips": tp_pips,
+            "pip_size": pip_size,
+            "size_from_risk": size_from_risk,
+            "momentum_type": momentum_type,
+            "momentum_window": momentum_window,
+            "momentum_threshold": momentum_threshold,
+            "macd_fast": macd_fast,
+            "macd_slow": macd_slow,
+            "macd_signal": macd_signal,
+            "macd_threshold": macd_threshold,
+            "range_lookback": range_lookback,
+            "range_min_atr": range_min_atr,
+            "range_min_points": range_min_points,
+            "breakout_buffer_atr": breakout_buffer_atr,
+            "breakout_confirmation_bars": breakout_confirmation_bars,
+            "atr_baseline_window": atr_baseline_window,
+            "atr_multiplier_min": atr_multiplier_min,
+            "atr_multiplier_max": atr_multiplier_max,
+            "trading_hours": trading_hours,
+            "adx_window": adx_window,
+            "adx_threshold": adx_threshold,
+            "rsi_threshold_long": rsi_threshold_long,
+            "rsi_threshold_short": rsi_threshold_short,
+            "max_daily_loss": max_daily_loss,
+            "max_loss_streak": max_loss_streak,
+            "max_losses_per_session": max_losses_per_session,
+            "cooldown_minutes": cooldown_minutes,
+            "max_holding_minutes": max_holding_minutes,
+            "allow_buy": allow_buy,
+            "allow_sell": allow_sell,
+            # Các trường còn lại trong SAVED_BACKTEST_CONFIG_FIELDS không dùng cho backtest -> set None
+            "ensure_history_hours": None,
+            "poll": None,
+            "live": False,
+            "ingest_live_db": None,
+            "history_batch": None,
+            "history_max_days": None,
+            "order_retry_times": order_retry_times,
+            "order_retry_delay_ms": order_retry_delay_ms,
+            "safety_entry_atr_mult": safety_entry_atr_mult,
+            "spread_samples": spread_samples,
+            "spread_sample_delay_ms": spread_sample_delay_ms,
+            "allowed_deviation_points": allowed_deviation_points,
+            "volatility_spike_atr_mult": volatility_spike_atr_mult,
+            "spike_delay_ms": spike_delay_ms,
+            "skip_reset_window": skip_reset_window,
+            "latency_min_ms": latency_min_ms,
+            "latency_max_ms": latency_max_ms,
+            "slippage_usd": slippage_usd,
+            "order_reject_prob": order_reject_prob,
+            "base_spread_points": base_spread_points,
+            "spread_spike_chance": spread_spike_chance,
+            "spread_spike_min_points": spread_spike_min_points,
+            "spread_spike_max_points": spread_spike_max_points,
+            "slip_per_atr_ratio": slip_per_atr_ratio,
+            "requote_prob": requote_prob,
+            "offquotes_prob": offquotes_prob,
+            "timeout_prob": timeout_prob,
+            "stop_hunt_chance": stop_hunt_chance,
+            "stop_hunt_min_atr_ratio": stop_hunt_min_atr_ratio,
+            "stop_hunt_max_atr_ratio": stop_hunt_max_atr_ratio,
+            "missing_tick_chance": missing_tick_chance,
+        }
+        try:
+            saved_config_id = await storage.insert_saved_backtest(config=config_payload)
+        except Exception:
+            saved_config_id = None
 
     config = MAConfig()
     config.symbol = symbol
@@ -130,7 +220,7 @@ async def run_backtest(
     config.tp_atr = tp_atr
     config.volume = volume
     config.contract_size = contract_size
-    config.size_from_risk = size_from_risk
+    config.size_from_risk = True
     config.max_holding_minutes = max_holding_minutes
     config.momentum_type = momentum_type
     config.momentum_window = momentum_window
@@ -199,7 +289,7 @@ async def run_backtest(
     vol_spike_mult = max(0.0, float(volatility_spike_atr_mult or 0.0))
     skip_reset = bool(skip_reset_window)
 
-    async def _run_range(range_start: datetime, range_end: datetime) -> Dict[str, Any]:
+    async def _run_range(range_start: datetime, range_end: datetime, visible_start_dt: Optional[datetime] = None) -> Dict[str, Any]:
         df = await strategy.calculate_signals(storage, range_start, range_end)
         if 'action' in df.columns:
             try:
@@ -215,6 +305,7 @@ async def run_backtest(
                 raise RuntimeError(f"Thiếu cột bắt buộc: {col}")
 
         trades: List[Dict] = []
+        visible_start_dt = visible_start_dt or range_start
 
         def _compute_spread(pip: float) -> float:
             if pip <= 0:
@@ -304,6 +395,9 @@ async def run_backtest(
                     if minute_of_day >= 23 * 60 + 59 or minute_of_day <= 10:
                         i += 1
                         continue
+                if entry_time < visible_start_dt:
+                    i += 1
+                    continue
                 range_high = float(row.get('range_high') or 0.0)
                 buffer = atr_val * float(breakout_buffer_atr or 0.0)
                 if safety_mult > 0:
@@ -513,14 +607,13 @@ async def run_backtest(
 
         day_tag = range_start.strftime('%Y%m%d')
         run_id = f"bt_{symbol}_{day_tag}_{uuid4().hex[:6]}"
-        run_start = _ensure_aware(range_start)
+        run_start = _ensure_aware(visible_start_dt or range_start)
         run_end = _ensure_aware(range_end)
         now_utc = datetime.now(timezone.utc)
         db_rows = [
             {
                 "run_id": run_id,
                 "symbol": symbol,
-                "preset": preset,
                 "saved_config_id": saved_config_id,
                 "side": trade["side"],
                 "entry_time": trade["entry_time"],
@@ -539,7 +632,7 @@ async def run_backtest(
             }
             for trade in trades
         ]
-        await storage.insert_backtest_trades(db_rows)
+        await storage.insert_backtest_trades(db_rows, saved_backtest_id=saved_config_id, run_start=run_start)
 
         total = len(trades)
         wins = sum(1 for t in trades if t['pnl'] > 0)
@@ -552,7 +645,7 @@ async def run_backtest(
         return {
             'range_start': run_start,
             'range_end': run_end,
-            'saved_config_id': saved_config_id,
+            'saved_backtest_id': saved_config_id,
             'total_trades': total,
             'wins': wins,
             'losses': losses,
@@ -587,26 +680,28 @@ async def run_backtest(
 
     # Chạy song song nhiều tuần nhưng giới hạn concurrency để tránh quá tải RAM/DB
     week_ranges = _week_ranges(start, end)
-    max_concurrency = 2
+    max_concurrency = 1
     sem = asyncio.Semaphore(max_concurrency)
 
     async def _run_segment(range_start: datetime, range_end: datetime) -> Dict[str, Any]:
         if cancel_event and cancel_event.is_set():
             raise asyncio.CancelledError("Backtest bị hủy")
         async with sem:
+            warmup_start = range_start - timedelta(days=7)
+            if warmup_start < start:
+                warmup_start = start
             deleted = await storage.delete_backtest_trades_in_range(
                 symbol,
                 range_start,
                 range_end,
-                preset,
-                saved_config_id,
+                saved_backtest_id=saved_config_id,
             )
             print(
                 f"🧹 Đã xoá {deleted} dòng backtest cũ cho khoảng {range_start.date()} -> {(range_end - timedelta(days=1)).date()}"
                 if deleted
                 else f"✨ Không có backtest cũ trong khoảng {range_start.date()} -> {(range_end - timedelta(days=1)).date()}"
             )
-            summary_seg = await _run_range(range_start, range_end)
+            summary_seg = await _run_range(warmup_start, range_end, range_start)
             summary_seg['deleted_rows'] = deleted or 0
             return summary_seg
 
@@ -641,19 +736,23 @@ async def run_backtest(
         return combined
 
 def _to_datetime(value) -> datetime:
+    local_tz = datetime.now().astimezone().tzinfo or timezone.utc
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return value if value.tzinfo else value.replace(tzinfo=local_tz)
     if isinstance(value, pd.Timestamp):
         dt = value.to_pydatetime()
-        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        return dt if dt.tzinfo else dt.replace(tzinfo=local_tz)
     if isinstance(value, str):
         dt = datetime.fromisoformat(value)
-        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        return dt if dt.tzinfo else dt.replace(tzinfo=local_tz)
     raise TypeError(f"Không thể chuyển '{value}' sang datetime")
 
 
 def _ensure_aware(dt: datetime) -> datetime:
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    if dt.tzinfo:
+        return dt
+    local_tz = datetime.now().astimezone().tzinfo or timezone.utc
+    return dt.replace(tzinfo=local_tz)
 
 
 def _aggregate_summaries(items: List[Dict[str, Any]]) -> Dict[str, Any]:

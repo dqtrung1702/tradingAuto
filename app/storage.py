@@ -19,6 +19,7 @@ from sqlalchemy import (
     delete,
     func,
     Boolean,
+    text,
 )
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -77,7 +78,6 @@ backtest_trades_table = Table(
     Column("saved_config_id", Integer, nullable=True, index=True),
     Column("run_id", String(64), nullable=False, index=True),
     Column("symbol", String(64), nullable=False, index=True),
-    Column("preset", String(64), nullable=True),
     Column("side", String(8), nullable=False),
     Column("entry_time", DateTime(timezone=True), nullable=False),
     Column("exit_time", DateTime(timezone=True), nullable=False),
@@ -100,10 +100,8 @@ saved_backtests_table = Table(
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("created_at", DateTime(timezone=True), nullable=False, index=True),
     Column("last_run_at", DateTime(timezone=True), nullable=False, index=True),
-    Column("note", String(255)),
     Column("config_hash", String(128), nullable=True, index=True),
     Column("symbol", String(64), nullable=True, index=True),
-    Column("preset", String(64), nullable=True),
     Column("fast", Integer, nullable=True),
     Column("slow", Integer, nullable=True),
     Column("ma_type", String(16), nullable=True),
@@ -157,13 +155,37 @@ saved_backtests_table = Table(
     Column("ingest_live_db", Boolean, nullable=True),
     Column("history_batch", Integer, nullable=True),
     Column("history_max_days", Integer, nullable=True),
+    Column("order_retry_times", Integer, nullable=True),
+    Column("order_retry_delay_ms", Integer, nullable=True),
+    Column("safety_entry_atr_mult", Float, nullable=True),
+    Column("spread_samples", Integer, nullable=True),
+    Column("spread_sample_delay_ms", Integer, nullable=True),
+    Column("allowed_deviation_points", Integer, nullable=True),
+    Column("volatility_spike_atr_mult", Float, nullable=True),
+    Column("spike_delay_ms", Integer, nullable=True),
+    Column("skip_reset_window", Boolean, nullable=True),
+    Column("latency_min_ms", Integer, nullable=True),
+    Column("latency_max_ms", Integer, nullable=True),
+    Column("slippage_usd", Float, nullable=True),
+    Column("order_reject_prob", Float, nullable=True),
+    Column("base_spread_points", Integer, nullable=True),
+    Column("spread_spike_chance", Float, nullable=True),
+    Column("spread_spike_min_points", Integer, nullable=True),
+    Column("spread_spike_max_points", Integer, nullable=True),
+    Column("slip_per_atr_ratio", Float, nullable=True),
+    Column("requote_prob", Float, nullable=True),
+    Column("offquotes_prob", Float, nullable=True),
+    Column("timeout_prob", Float, nullable=True),
+    Column("stop_hunt_chance", Float, nullable=True),
+    Column("stop_hunt_min_atr_ratio", Float, nullable=True),
+    Column("stop_hunt_max_atr_ratio", Float, nullable=True),
+    Column("missing_tick_chance", Float, nullable=True),
     UniqueConstraint("config_hash", name="uq_saved_backtests_config_hash"),
 )
 
 # Danh sách cột cấu hình backtest cần lưu phẳng (không JSON)
 SAVED_BACKTEST_CONFIG_FIELDS: List[str] = [
     "symbol",
-    "preset",
     "fast",
     "slow",
     "ma_type",
@@ -217,6 +239,31 @@ SAVED_BACKTEST_CONFIG_FIELDS: List[str] = [
     "ingest_live_db",
     "history_batch",
     "history_max_days",
+    "order_retry_times",
+    "order_retry_delay_ms",
+    "safety_entry_atr_mult",
+    "spread_samples",
+    "spread_sample_delay_ms",
+    "allowed_deviation_points",
+    "volatility_spike_atr_mult",
+    "spike_delay_ms",
+    "skip_reset_window",
+    "latency_min_ms",
+    "latency_max_ms",
+    "slippage_usd",
+    "order_reject_prob",
+    "base_spread_points",
+    "spread_spike_chance",
+    "spread_spike_min_points",
+    "spread_spike_max_points",
+    "slip_per_atr_ratio",
+    "requote_prob",
+    "offquotes_prob",
+    "timeout_prob",
+    "stop_hunt_chance",
+    "stop_hunt_min_atr_ratio",
+    "stop_hunt_max_atr_ratio",
+    "missing_tick_chance",
 ]
 
 
@@ -297,6 +344,22 @@ class Storage:
 
     def _create_engine(self) -> AsyncEngine:
         return create_async_engine(self._db_url, future=True)
+
+    async def _get_existing_saved_backtests_columns(self, conn) -> set[str]:
+        """Đọc danh sách cột hiện có của bảng saved_backtests trong DB để tránh lỗi thiếu cột."""
+        try:
+            if conn.dialect.name.startswith("postgres"):
+                query = text(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'saved_backtests'"
+                )
+                result = await conn.execute(query)
+                return {row[0] for row in result.fetchall()}
+            if conn.dialect.name == "sqlite":
+                result = await conn.execute(text("PRAGMA table_info(saved_backtests)"))
+                return {row[1] for row in result.fetchall()}
+        except Exception:
+            return set()
+        return set()
 
     async def init(self) -> None:
         if self._engine is None:
@@ -418,7 +481,13 @@ class Storage:
         async with self._engine.begin() as conn:
             await conn.execute(run_configs_table.insert().values(started_at=ts, config=config))
 
-    async def insert_backtest_trades(self, rows: List[Dict[str, Any]]) -> None:
+    async def insert_backtest_trades(
+        self,
+        rows: List[Dict[str, Any]],
+        *,
+        saved_backtest_id: Optional[int] = None,
+        run_start: Optional[datetime] = None,
+    ) -> None:
         if not rows:
             return
         if not self._engine:
@@ -432,8 +501,20 @@ class Storage:
                         norm[key] = norm[key].replace(tzinfo=timezone.utc)
                     else:
                         norm[key] = norm[key].astimezone(timezone.utc)
+            if saved_backtest_id is not None:
+                norm["saved_config_id"] = saved_backtest_id
             normalized.append(norm)
         async with self._engine.begin() as conn:
+            if saved_backtest_id is not None and run_start is not None:
+                day_start = _start_of_day_utc(run_start)
+                day_end = day_start + timedelta(days=1)
+                await conn.execute(
+                    backtest_trades_table.delete().where(
+                        backtest_trades_table.c.saved_config_id == saved_backtest_id,
+                        backtest_trades_table.c.entry_time >= day_start,
+                        backtest_trades_table.c.entry_time < day_end,
+                    )
+                )
             await conn.execute(backtest_trades_table.insert(), normalized)
 
     async def insert_saved_backtest(self, config: Dict[str, Any], note: Optional[str] = None) -> int:
@@ -448,17 +529,17 @@ class Storage:
             raise ValueError("Config backtest thiếu 'symbol'")
 
         async with self._engine.begin() as conn:
+            existing_columns = await self._get_existing_saved_backtests_columns(conn)
+
             # Nếu đã có cấu hình cùng hash -> chỉ cập nhật last_run_at (và note nếu gửi mới)
             existing = await conn.execute(
-                select(saved_backtests_table.c.id, saved_backtests_table.c.note).where(
+                select(saved_backtests_table.c.id).where(
                     saved_backtests_table.c.config_hash == cfg_hash
                 )
             )
             row = existing.first()
             if row:
                 update_values: Dict[str, Any] = {"last_run_at": now}
-                if note is not None:
-                    update_values["note"] = note
                 await conn.execute(
                     saved_backtests_table.update()
                     .where(saved_backtests_table.c.id == row.id)
@@ -471,8 +552,9 @@ class Storage:
                 "config_hash": cfg_hash,
                 "created_at": now,
                 "last_run_at": now,
-                "note": note,
             }
+            if existing_columns:
+                record = {k: v for k, v in record.items() if k in existing_columns}
             result = await conn.execute(saved_backtests_table.insert().values(**record))
             inserted_pk = None
             if hasattr(result, "inserted_primary_key") and result.inserted_primary_key:
@@ -486,8 +568,7 @@ class Storage:
         symbol: str,
         start_dt: datetime,
         end_dt: datetime,
-        preset: Optional[str] = None,
-        saved_config_id: Optional[int] = None,
+        saved_backtest_id: Optional[int] = None,
     ) -> int:
         if not self._engine:
             raise RuntimeError("Storage not initialized")
@@ -504,10 +585,8 @@ class Storage:
             backtest_trades_table.c.entry_time >= start_dt,
             backtest_trades_table.c.entry_time < end_dt,
         ]
-        if preset:
-            conditions.append(backtest_trades_table.c.preset == preset)
-        if saved_config_id is not None:
-            conditions.append(backtest_trades_table.c.saved_config_id == saved_config_id)
+        if saved_backtest_id is not None:
+            conditions.append(backtest_trades_table.c.saved_config_id == saved_backtest_id)
         async with self._engine.begin() as conn:
             result = await conn.execute(delete(backtest_trades_table).where(*conditions))
             return result.rowcount if hasattr(result, "rowcount") else 0
@@ -583,7 +662,6 @@ class Storage:
             select(
                 backtest_trades_table.c.run_id,
                 backtest_trades_table.c.symbol,
-                backtest_trades_table.c.preset,
                 backtest_trades_table.c.saved_config_id,
                 backtest_trades_table.c.side,
                 backtest_trades_table.c.entry_time,
@@ -606,6 +684,12 @@ class Storage:
             result = await conn.execute(stmt)
             rows = result.fetchall()
         return [dict(row._mapping) for row in rows]
+
+
+def _start_of_day_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def _ensure_datetime(row: Dict) -> None:

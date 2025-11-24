@@ -272,40 +272,54 @@ class MACrossoverStrategy:
     async def _update_data(self) -> None:
         """Cập nhật dữ liệu và tính toán chỉ báo."""
         end_time = datetime.now(timezone.utc)
+        required_bars = self._calculate_required_bars()
         lookback = self._calculate_lookback_duration()
-        start_time = end_time - lookback
-        
-        # Lấy dữ liệu và tính MA nhanh
-        atr_window = max(2, int(getattr(self.config, 'atr_baseline_window', self.config.fast_ma)))
-        df_fast = await get_ma_series(
-            self.storage,
-            self.config.symbol,
-            start_time,
-            end_time,
-            self.config.timeframe,
-            self.config.fast_ma,
-            self.config.ma_type,
-            atr_window=atr_window,
-        )
-        df_fast = df_fast.rename(columns={'ma': 'fast_ma'})
-        
-        # Tính MA chậm
-        df_slow = await get_ma_series(
-            self.storage,
-            self.config.symbol,
-            start_time,
-            end_time,
-            self.config.timeframe,
-            self.config.slow_ma,
-            self.config.ma_type,
-            atr_window=atr_window,
-        )
-        df_slow = df_slow.rename(columns={'ma': 'slow_ma'})
-        
-        # Merge 2 dataframe và bổ sung chỉ báo breakout
-        merged = pd.merge(df_fast, df_slow[['datetime', 'slow_ma']], on='datetime')
-        self._df = self._enrich_dataframe(merged)
-        self._last_update = end_time
+        max_lookback = timedelta(days=14)
+        attempts = 0
+
+        while True:
+            start_time = end_time - lookback
+            atr_window = max(2, int(getattr(self.config, 'atr_baseline_window', self.config.fast_ma)))
+            df_fast = await get_ma_series(
+                self.storage,
+                self.config.symbol,
+                start_time,
+                end_time,
+                self.config.timeframe,
+                self.config.fast_ma,
+                self.config.ma_type,
+                atr_window=atr_window,
+            )
+            df_fast = df_fast.rename(columns={'ma': 'fast_ma'})
+
+            df_slow = await get_ma_series(
+                self.storage,
+                self.config.symbol,
+                start_time,
+                end_time,
+                self.config.timeframe,
+                self.config.slow_ma,
+                self.config.ma_type,
+                atr_window=atr_window,
+            )
+            df_slow = df_slow.rename(columns={'ma': 'slow_ma'})
+
+            if df_fast.empty or df_slow.empty:
+                enriched = pd.DataFrame()
+            else:
+                merged = pd.merge(df_fast, df_slow[['datetime', 'slow_ma']], on='datetime')
+                enriched = self._enrich_dataframe(merged)
+
+            self._df = enriched
+            self._last_update = end_time
+
+            if len(enriched) >= required_bars:
+                break
+            attempts += 1
+            if lookback >= max_lookback or attempts >= 3:
+                break
+            # Nếu chưa đủ bar (ví dụ qua cuối tuần), mở rộng lookback gấp đôi và thử lại
+            lookback = min(lookback * 2, max_lookback)
 
     def _enrich_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """Bổ sung các cột phục vụ breakout (MACD, range high/low, ATR baseline)."""

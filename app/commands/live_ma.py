@@ -16,7 +16,6 @@ async def run_live_strategy(
     *,
     db_url: str,
     symbol: Optional[str],
-    preset: Optional[str] = None,
     fast: int,
     slow: int,
     ma_type: str,
@@ -25,11 +24,11 @@ async def run_live_strategy(
     spread_atr_max: float,
     reverse_exit: bool,
     market_state_window: int,
-    volume: float,
-    capital: float,
+    volume: float = 0.1,
+    capital: float = 100.0,
     risk_pct: float,
     contract_size: float,
-    size_from_risk: bool,
+    size_from_risk: bool = True,
     sl_atr: float,
     tp_atr: float,
     sl_pips: Optional[float],
@@ -77,8 +76,6 @@ async def run_live_strategy(
     storage = Storage(db_url)
     await storage.init()
     resolved_symbol = symbol or base_settings.quote_symbol
-    # preset tạm vô hiệu hoá, luôn dùng cấu hình truyền vào
-    preset_cfg = None
 
     if ensure_history_hours > 0:
         await _ensure_history_data(
@@ -119,7 +116,7 @@ async def run_live_strategy(
     cfg.capital = capital
     cfg.risk_pct = risk_pct
     cfg.contract_size = contract_size
-    cfg.size_from_risk = size_from_risk
+    cfg.size_from_risk = True
     cfg.sl_atr = sl_atr
     cfg.tp_atr = tp_atr
     cfg.trail_trigger_atr = trail_trigger_atr
@@ -150,11 +147,7 @@ async def run_live_strategy(
     cfg.max_consecutive_losses = max_loss_streak
     cfg.max_losses_per_session = max_losses_per_session
     cfg.cooldown_minutes = cooldown_minutes
-    cfg.max_holding_minutes = (
-        preset_cfg.max_holding_minutes
-        if (preset_cfg and preset_cfg.max_holding_minutes is not None)
-        else max_holding_minutes
-    )
+    cfg.max_holding_minutes = max_holding_minutes
     cfg.allow_buy = allow_buy
     cfg.allow_sell = allow_sell
 
@@ -165,6 +158,60 @@ async def run_live_strategy(
 
     strategy = MACrossoverStrategy(cfg, local_quote_service, storage, event_handler=event_handler)
     strategy._running = True  # noqa: SLF001 - giữ nguyên hành vi script gốc
+    # Warmup dữ liệu chỉ báo từ DB trước khi nhận quote realtime
+    async def _warmup_with_fetch() -> None:
+        def _required_hours() -> float:
+            try:
+                lookback = strategy._calculate_lookback_duration()
+                minutes = strategy._timeframe_minutes() * strategy._calculate_required_bars()
+                return max(1.0, lookback.total_seconds() / 3600.0, minutes / 60.0)
+            except Exception:
+                return 24.0
+
+        async def _do_fetch(hours: float) -> None:
+            end = datetime.now(timezone.utc)
+            start = end - timedelta(hours=hours)
+            await history_cmd.fetch_history(
+                symbol=resolved_symbol,
+                start=start,
+                end=end,
+                db_url=db_url,
+                batch=history_batch,
+                max_days=history_max_days,
+            )
+
+        try:
+            await strategy._update_data()
+            if strategy._df is None or strategy._df.empty:
+                raise RuntimeError("Empty DF after warmup")
+        except Exception:
+            # Nếu thiếu dữ liệu (thường sau cuối tuần), fetch bù rồi thử lại
+            try:
+                target_hours = max(_required_hours(), ensure_history_hours or 24, 24)
+                attempts = 0
+                while attempts < 4:
+                    await _do_fetch(target_hours)
+                    await strategy._update_data()
+                    if strategy._df is not None and len(strategy._df) >= strategy._calculate_required_bars():
+                        break
+                    target_hours *= 2
+                    attempts += 1
+                if strategy._df is None or len(strategy._df) < strategy._calculate_required_bars():
+                    raise RuntimeError("Empty/insufficient DF after extended fetch")
+            except Exception as exc_inner:  # pragma: no cover - best effort
+                print(f"⚠️ Warmup dữ liệu thất bại sau fetch: {exc_inner}")
+
+        # Log số bar để debug thiếu dữ liệu
+        try:
+            df_len = len(strategy._df) if strategy._df is not None else 0
+            print(
+                f"[warmup] Loaded {df_len} bars for {resolved_symbol} "
+                f"(timeframe={timeframe}, ensure_history_hours={ensure_history_hours})"
+            )
+        except Exception:
+            pass
+
+    await _warmup_with_fetch()
 
     print('Bắt đầu chạy live. Nhấn Ctrl+C để dừng...')
     try:

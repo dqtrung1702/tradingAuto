@@ -37,7 +37,6 @@ class _RuntimeState:
 class LiveStartRequest(BaseModel):
     db_url: Optional[str] = Field(default=None, description="Chuỗi kết nối DB async")
     symbol: Optional[str] = None
-    preset: Optional[str] = None
     fast: int = 21
     slow: int = 89
     ma_type: str = "ema"
@@ -46,11 +45,9 @@ class LiveStartRequest(BaseModel):
     spread_atr_max: float = 0.2
     reverse_exit: bool = False
     market_state_window: int = 20
-    volume: float = 0.10
-    capital: float = 10000.0
+    capital: float = 100.0
     risk_pct: float = 0.02
     contract_size: float = 100.0
-    size_from_risk: bool = False
     sl_atr: float = 2.0
     tp_atr: float = 3.0
     trail_trigger_atr: float = 1.0

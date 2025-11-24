@@ -7,11 +7,11 @@ Utility script to aggregate results stored in backtest_trades.
 Examples
 --------
 python summarize_backtest_trades.py \
-  --db-url postgresql+asyncpg://user:pass@localhost:5432/mt5 \
+  --db-url postgresql+asyncpg://trader:admin@localhost:5432/mt5 \
   --top 5
 
 python summarize_backtest_trades.py \
-  --db-url postgresql+asyncpg://user:pass@localhost:5432/mt5 \
+  --db-url postgresql+asyncpg://trader:admin@localhost:5432/mt5 \
   --run-id bt_XAUUSD_ab12cd34
 """
 
@@ -34,7 +34,6 @@ def summarize_runs(db_url: str, run_id: Optional[str], top: int) -> None:
         SELECT
             run_id,
             symbol,
-            COALESCE(preset, 'custom') AS preset,
             MIN(run_start) AS run_start,
             MAX(run_end) AS run_end,
             COUNT(*) AS total_trades,
@@ -46,7 +45,7 @@ def summarize_runs(db_url: str, run_id: Optional[str], top: int) -> None:
             AVG(COALESCE(usd_pnl, 0)) AS avg_usd_pnl
         FROM backtest_trades
         {where_clause}
-        GROUP BY run_id, symbol, COALESCE(preset, 'custom')
+        GROUP BY run_id, symbol
         ORDER BY run_start DESC
         {limit_clause}
     """
@@ -70,7 +69,7 @@ def summarize_runs(db_url: str, run_id: Optional[str], top: int) -> None:
         for row in rows:
             print("=" * 60)
             print(f"Run ID      : {row.run_id}")
-            print(f"Symbol/Preset: {row.symbol} / {row.preset}")
+            print(f"Symbol      : {row.symbol}")
             print(f"Range       : {row.run_start} ➜ {row.run_end}")
             print(f"Trades      : {row.total_trades} (wins {row.wins}, losses {row.losses})")
             print(f"PnL (pts)   : total {row.total_pnl:.4f} | avg {row.avg_pnl:.4f}")
