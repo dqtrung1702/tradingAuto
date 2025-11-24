@@ -102,7 +102,7 @@ from optimize_breakout_params_v2 import (
     evaluate_breakout,
 )
 
-def optimize_for_session(bars, session):
+def optimize_for_session(bars, session, capital, risk_pct):
     print(f"🔄 Running optimization for {session.upper()} session...")
 
     sess_bars = extract_session(bars, session)
@@ -115,7 +115,12 @@ def optimize_for_session(bars, session):
 
     results = []
     for params in param_grid:
-        pnl, sharpe, dd = evaluate_breakout(sess_bars, params)
+        pnl, sharpe, dd = evaluate_breakout(
+            sess_bars,
+            params,
+            capital=capital,
+            risk_pct=risk_pct,
+        )
         score = sharpe - 0.1 * abs(dd)  # penalty on DD
         results.append((score, pnl, sharpe, dd, params))
 
@@ -123,7 +128,9 @@ def optimize_for_session(bars, session):
     best = sorted(results, reverse=True, key=lambda x: x[0])[0]
     score, pnl, sharpe, dd, params = best
 
-    print(f"🏆 Best for {session.upper()}: Score={score:.2f}, PnL={pnl:.2f}, Sharpe={sharpe:.2f}, MaxDD={dd:.2f}")
+    print(
+        f"🏆 Best for {session.upper()}: Score={score:.2f}, PnL={pnl:.2f}, Sharpe={sharpe:.2f}, MaxDD={dd:.2f}%"
+    )
     print(json.dumps(params, indent=2))
 
     return {
@@ -144,6 +151,13 @@ def main():
     parser.add_argument("--end", help="YYYY-MM-DD")
     parser.add_argument("--tz", type=int, default=0)
     parser.add_argument("--session", choices=["asia", "europe", "us", "all"], default="all")
+    parser.add_argument("--capital", type=float, default=100.0, help="Account capital for sizing (USD).")
+    parser.add_argument(
+        "--risk-pct",
+        type=float,
+        default=0.06,
+        help="Risk per trade expressed as fraction of capital (e.g. 0.02 = 2%).",
+    )
     args = parser.parse_args()
 
     # Load tick data
@@ -164,7 +178,7 @@ def main():
     session_results = []
 
     for sess in sessions:
-        result = optimize_for_session(bars, sess)
+        result = optimize_for_session(bars, sess, args.capital, args.risk_pct)
         if result:
             session_results.append(result)
 

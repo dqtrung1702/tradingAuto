@@ -1,6 +1,8 @@
 from typing import Optional, List, Dict, Any
 import os
-from datetime import datetime, timezone
+import json
+import hashlib
+from datetime import datetime, timezone, timedelta
 
 from sqlalchemy import (
     MetaData,
@@ -14,6 +16,10 @@ from sqlalchemy import (
     UniqueConstraint,
     select,
     DateTime,
+    delete,
+    func,
+    Boolean,
+    text,
 )
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -40,11 +46,21 @@ trades_table = Table(
     "trades",
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("event_type", String(32), nullable=True),
+    Column("symbol", String(64), nullable=True, index=True),
     Column("side", String(8)),
     Column("price", Float),
-    Column("time_msc", BigInteger),
+    Column("open_price", Float, nullable=True),
+    Column("close_price", Float, nullable=True),
+    Column("volume", Float, nullable=True),
+    Column("stop_loss", Float, nullable=True),
+    Column("take_profit", Float, nullable=True),
+    Column("pnl_points", Float, nullable=True),
+    Column("pnl_value", Float, nullable=True),
     Column("pnl", Float),
-    Column("meta", JSON, nullable=True),
+    Column("openid", Integer, nullable=True, index=True),
+    Column("time_msc", BigInteger, index=True),
+    Column("vntime", DateTime(timezone=True), nullable=True, index=True),
 )
 
 run_configs_table = Table(
@@ -59,9 +75,9 @@ backtest_trades_table = Table(
     "backtest_trades",
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("saved_config_id", Integer, nullable=True, index=True),
     Column("run_id", String(64), nullable=False, index=True),
     Column("symbol", String(64), nullable=False, index=True),
-    Column("preset", String(64), nullable=True),
     Column("side", String(8), nullable=False),
     Column("entry_time", DateTime(timezone=True), nullable=False),
     Column("exit_time", DateTime(timezone=True), nullable=False),
@@ -77,6 +93,227 @@ backtest_trades_table = Table(
     Column("run_end", DateTime(timezone=True), nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False, index=True),
 )
+
+saved_backtests_table = Table(
+    "saved_backtests",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, index=True),
+    Column("last_run_at", DateTime(timezone=True), nullable=False, index=True),
+    Column("config_hash", String(128), nullable=True, index=True),
+    Column("symbol", String(64), nullable=True, index=True),
+    Column("fast", Integer, nullable=True),
+    Column("slow", Integer, nullable=True),
+    Column("ma_type", String(16), nullable=True),
+    Column("timeframe", String(16), nullable=True),
+    Column("trend", Integer, nullable=True),
+    Column("risk_pct", Float, nullable=True),
+    Column("capital", Float, nullable=True),
+    Column("trail_trigger_atr", Float, nullable=True),
+    Column("trail_atr_mult", Float, nullable=True),
+    Column("spread_atr_max", Float, nullable=True),
+    Column("reverse_exit", Boolean, nullable=True),
+    Column("market_state_window", Integer, nullable=True),
+    Column("sl_atr", Float, nullable=True),
+    Column("tp_atr", Float, nullable=True),
+    Column("volume", Float, nullable=True),
+    Column("contract_size", Float, nullable=True),
+    Column("sl_pips", Float, nullable=True),
+    Column("tp_pips", Float, nullable=True),
+    Column("pip_size", Float, nullable=True),
+    Column("size_from_risk", Boolean, nullable=True),
+    Column("momentum_type", String(32), nullable=True),
+    Column("momentum_window", Integer, nullable=True),
+    Column("momentum_threshold", Float, nullable=True),
+    Column("macd_fast", Integer, nullable=True),
+    Column("macd_slow", Integer, nullable=True),
+    Column("macd_signal", Integer, nullable=True),
+    Column("macd_threshold", Float, nullable=True),
+    Column("range_lookback", Integer, nullable=True),
+    Column("range_min_atr", Float, nullable=True),
+    Column("range_min_points", Float, nullable=True),
+    Column("breakout_buffer_atr", Float, nullable=True),
+    Column("breakout_confirmation_bars", Integer, nullable=True),
+    Column("atr_baseline_window", Integer, nullable=True),
+    Column("atr_multiplier_min", Float, nullable=True),
+    Column("atr_multiplier_max", Float, nullable=True),
+    Column("trading_hours", String(255), nullable=True),
+    Column("adx_window", Integer, nullable=True),
+    Column("adx_threshold", Float, nullable=True),
+    Column("rsi_threshold_long", Float, nullable=True),
+    Column("rsi_threshold_short", Float, nullable=True),
+    Column("max_daily_loss", Float, nullable=True),
+    Column("max_loss_streak", Integer, nullable=True),
+    Column("max_losses_per_session", Integer, nullable=True),
+    Column("cooldown_minutes", Integer, nullable=True),
+    Column("allow_buy", Boolean, nullable=True),
+    Column("allow_sell", Boolean, nullable=True),
+    Column("max_holding_minutes", Integer, nullable=True),
+    Column("ensure_history_hours", Integer, nullable=True),
+    Column("poll", Integer, nullable=True),
+    Column("live", Boolean, nullable=True),
+    Column("ingest_live_db", Boolean, nullable=True),
+    Column("history_batch", Integer, nullable=True),
+    Column("history_max_days", Integer, nullable=True),
+    Column("order_retry_times", Integer, nullable=True),
+    Column("order_retry_delay_ms", Integer, nullable=True),
+    Column("safety_entry_atr_mult", Float, nullable=True),
+    Column("spread_samples", Integer, nullable=True),
+    Column("spread_sample_delay_ms", Integer, nullable=True),
+    Column("allowed_deviation_points", Integer, nullable=True),
+    Column("volatility_spike_atr_mult", Float, nullable=True),
+    Column("spike_delay_ms", Integer, nullable=True),
+    Column("skip_reset_window", Boolean, nullable=True),
+    Column("latency_min_ms", Integer, nullable=True),
+    Column("latency_max_ms", Integer, nullable=True),
+    Column("slippage_usd", Float, nullable=True),
+    Column("order_reject_prob", Float, nullable=True),
+    Column("base_spread_points", Integer, nullable=True),
+    Column("spread_spike_chance", Float, nullable=True),
+    Column("spread_spike_min_points", Integer, nullable=True),
+    Column("spread_spike_max_points", Integer, nullable=True),
+    Column("slip_per_atr_ratio", Float, nullable=True),
+    Column("requote_prob", Float, nullable=True),
+    Column("offquotes_prob", Float, nullable=True),
+    Column("timeout_prob", Float, nullable=True),
+    Column("stop_hunt_chance", Float, nullable=True),
+    Column("stop_hunt_min_atr_ratio", Float, nullable=True),
+    Column("stop_hunt_max_atr_ratio", Float, nullable=True),
+    Column("missing_tick_chance", Float, nullable=True),
+    UniqueConstraint("config_hash", name="uq_saved_backtests_config_hash"),
+)
+
+# Danh sách cột cấu hình backtest cần lưu phẳng (không JSON)
+SAVED_BACKTEST_CONFIG_FIELDS: List[str] = [
+    "symbol",
+    "fast",
+    "slow",
+    "ma_type",
+    "timeframe",
+    "trend",
+    "risk_pct",
+    "capital",
+    "trail_trigger_atr",
+    "trail_atr_mult",
+    "spread_atr_max",
+    "reverse_exit",
+    "market_state_window",
+    "sl_atr",
+    "tp_atr",
+    "volume",
+    "contract_size",
+    "sl_pips",
+    "tp_pips",
+    "pip_size",
+    "size_from_risk",
+    "momentum_type",
+    "momentum_window",
+    "momentum_threshold",
+    "macd_fast",
+    "macd_slow",
+    "macd_signal",
+    "macd_threshold",
+    "range_lookback",
+    "range_min_atr",
+    "range_min_points",
+    "breakout_buffer_atr",
+    "breakout_confirmation_bars",
+    "atr_baseline_window",
+    "atr_multiplier_min",
+    "atr_multiplier_max",
+    "trading_hours",
+    "adx_window",
+    "adx_threshold",
+    "rsi_threshold_long",
+    "rsi_threshold_short",
+    "max_daily_loss",
+    "max_loss_streak",
+    "max_losses_per_session",
+    "cooldown_minutes",
+    "max_holding_minutes",
+    "allow_buy",
+    "allow_sell",
+    "ensure_history_hours",
+    "poll",
+    "live",
+    "ingest_live_db",
+    "history_batch",
+    "history_max_days",
+    "order_retry_times",
+    "order_retry_delay_ms",
+    "safety_entry_atr_mult",
+    "spread_samples",
+    "spread_sample_delay_ms",
+    "allowed_deviation_points",
+    "volatility_spike_atr_mult",
+    "spike_delay_ms",
+    "skip_reset_window",
+    "latency_min_ms",
+    "latency_max_ms",
+    "slippage_usd",
+    "order_reject_prob",
+    "base_spread_points",
+    "spread_spike_chance",
+    "spread_spike_min_points",
+    "spread_spike_max_points",
+    "slip_per_atr_ratio",
+    "requote_prob",
+    "offquotes_prob",
+    "timeout_prob",
+    "stop_hunt_chance",
+    "stop_hunt_min_atr_ratio",
+    "stop_hunt_max_atr_ratio",
+    "missing_tick_chance",
+]
+
+
+def flatten_backtest_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Tuỳ biến config dict thành dict phẳng theo danh sách cột."""
+
+    def _coerce(value: Any) -> Any:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, bool):
+            return bool(value)
+        if value is None:
+            return None
+        try:
+            if isinstance(value, int):
+                return int(value)
+            if isinstance(value, float):
+                return float(value)
+            if isinstance(value, (list, tuple)):
+                return ",".join(str(v) for v in value)
+        except Exception:
+            return value
+        return value
+
+    flattened: Dict[str, Any] = {}
+    for field in SAVED_BACKTEST_CONFIG_FIELDS:
+        # Hỗ trợ alias fast_ma/slow_ma/trend_ma nếu được cung cấp
+        if field == "fast":
+            flattened[field] = _coerce(config.get("fast", config.get("fast_ma")))
+        elif field == "slow":
+            flattened[field] = _coerce(config.get("slow", config.get("slow_ma")))
+        elif field == "trend":
+            flattened[field] = _coerce(config.get("trend", config.get("trend_ma")))
+        elif field == "trading_hours":
+            raw = config.get("trading_hours")
+            if isinstance(raw, str):
+                flattened[field] = raw
+            elif isinstance(raw, (list, tuple)):
+                flattened[field] = ",".join(str(v) for v in raw)
+            else:
+                flattened[field] = None
+        else:
+            flattened[field] = _coerce(config.get(field))
+    return flattened
+
+
+def compute_config_hash(flat_config: Dict[str, Any]) -> str:
+    normalized = {k: flat_config.get(k) for k in sorted(SAVED_BACKTEST_CONFIG_FIELDS)}
+    data = json.dumps(normalized, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha1(data.encode("utf-8")).hexdigest()
 
 
 def _get_db_url(provided: Optional[str] = None) -> str:
@@ -107,6 +344,22 @@ class Storage:
 
     def _create_engine(self) -> AsyncEngine:
         return create_async_engine(self._db_url, future=True)
+
+    async def _get_existing_saved_backtests_columns(self, conn) -> set[str]:
+        """Đọc danh sách cột hiện có của bảng saved_backtests trong DB để tránh lỗi thiếu cột."""
+        try:
+            if conn.dialect.name.startswith("postgres"):
+                query = text(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'saved_backtests'"
+                )
+                result = await conn.execute(query)
+                return {row[0] for row in result.fetchall()}
+            if conn.dialect.name == "sqlite":
+                result = await conn.execute(text("PRAGMA table_info(saved_backtests)"))
+                return {row[1] for row in result.fetchall()}
+        except Exception:
+            return set()
+        return set()
 
     async def init(self) -> None:
         if self._engine is None:
@@ -170,11 +423,56 @@ class Storage:
                 else:
                     await conn.execute(ticks_table.insert(), batch)
 
-    async def insert_trade(self, side: str, price: float, time_msc: int, pnl: Optional[float] = None, meta: Optional[dict] = None) -> None:
+    async def insert_trade(
+        self,
+        *,
+        side: str,
+        price: float,
+        time_msc: int,
+        pnl: Optional[float] = None,
+        event_type: Optional[str] = None,
+        symbol: Optional[str] = None,
+        volume: Optional[float] = None,
+        stop_loss: Optional[float] = None,
+        take_profit: Optional[float] = None,
+        open_price: Optional[float] = None,
+        close_price: Optional[float] = None,
+        pnl_points: Optional[float] = None,
+        pnl_value: Optional[float] = None,
+        openid: Optional[int] = None,
+    ) -> Optional[int]:
+        """Insert a trade event with explicit columns instead of JSON meta."""
         if not self._engine:
             raise RuntimeError("Storage not initialized")
+
+        ts_utc = datetime.fromtimestamp(int(time_msc) / 1000, tz=timezone.utc)
+        vn_tz = timezone(timedelta(hours=7))
+        vn_dt = ts_utc.astimezone(vn_tz)
+
+        record: Dict[str, Any] = {
+            "event_type": event_type,
+            "symbol": symbol,
+            "side": side,
+            "price": price,
+            "open_price": open_price,
+            "close_price": close_price,
+            "volume": volume,
+            "stop_loss": stop_loss,
+            "take_profit": take_profit,
+            "pnl_points": pnl_points,
+            "pnl_value": pnl_value,
+            "pnl": pnl,
+            "openid": openid,
+            "time_msc": int(time_msc),
+            "vntime": vn_dt,
+        }
+
         async with self._engine.begin() as conn:
-            await conn.execute(trades_table.insert().values(side=side, price=price, time_msc=time_msc, pnl=pnl, meta=meta))
+            result = await conn.execute(trades_table.insert().values(**record))
+            inserted_pk = None
+            if hasattr(result, "inserted_primary_key") and result.inserted_primary_key:
+                inserted_pk = result.inserted_primary_key[0]
+        return int(inserted_pk) if inserted_pk is not None else None
 
     async def insert_run_config(self, started_at: datetime, config: Dict[str, Any]) -> None:
         if not self._engine:
@@ -183,7 +481,13 @@ class Storage:
         async with self._engine.begin() as conn:
             await conn.execute(run_configs_table.insert().values(started_at=ts, config=config))
 
-    async def insert_backtest_trades(self, rows: List[Dict[str, Any]]) -> None:
+    async def insert_backtest_trades(
+        self,
+        rows: List[Dict[str, Any]],
+        *,
+        saved_backtest_id: Optional[int] = None,
+        run_start: Optional[datetime] = None,
+    ) -> None:
         if not rows:
             return
         if not self._engine:
@@ -197,9 +501,95 @@ class Storage:
                         norm[key] = norm[key].replace(tzinfo=timezone.utc)
                     else:
                         norm[key] = norm[key].astimezone(timezone.utc)
+            if saved_backtest_id is not None:
+                norm["saved_config_id"] = saved_backtest_id
             normalized.append(norm)
         async with self._engine.begin() as conn:
+            if saved_backtest_id is not None and run_start is not None:
+                day_start = _start_of_day_utc(run_start)
+                day_end = day_start + timedelta(days=1)
+                await conn.execute(
+                    backtest_trades_table.delete().where(
+                        backtest_trades_table.c.saved_config_id == saved_backtest_id,
+                        backtest_trades_table.c.entry_time >= day_start,
+                        backtest_trades_table.c.entry_time < day_end,
+                    )
+                )
             await conn.execute(backtest_trades_table.insert(), normalized)
+
+    async def insert_saved_backtest(self, config: Dict[str, Any], note: Optional[str] = None) -> int:
+        if not self._engine:
+            raise RuntimeError("Storage not initialized")
+
+        flat_cfg = flatten_backtest_config(config)
+        cfg_hash = compute_config_hash(flat_cfg)
+        now = datetime.now(timezone.utc)
+
+        if not flat_cfg.get("symbol"):
+            raise ValueError("Config backtest thiếu 'symbol'")
+
+        async with self._engine.begin() as conn:
+            existing_columns = await self._get_existing_saved_backtests_columns(conn)
+
+            # Nếu đã có cấu hình cùng hash -> chỉ cập nhật last_run_at (và note nếu gửi mới)
+            existing = await conn.execute(
+                select(saved_backtests_table.c.id).where(
+                    saved_backtests_table.c.config_hash == cfg_hash
+                )
+            )
+            row = existing.first()
+            if row:
+                update_values: Dict[str, Any] = {"last_run_at": now}
+                await conn.execute(
+                    saved_backtests_table.update()
+                    .where(saved_backtests_table.c.id == row.id)
+                    .values(**update_values)
+                )
+                return int(row.id)
+
+            record: Dict[str, Any] = {
+                **flat_cfg,
+                "config_hash": cfg_hash,
+                "created_at": now,
+                "last_run_at": now,
+            }
+            if existing_columns:
+                record = {k: v for k, v in record.items() if k in existing_columns}
+            result = await conn.execute(saved_backtests_table.insert().values(**record))
+            inserted_pk = None
+            if hasattr(result, "inserted_primary_key") and result.inserted_primary_key:
+                inserted_pk = result.inserted_primary_key[0]
+        if inserted_pk is None:
+            raise RuntimeError("Không thể xác định ID saved_backtests mới")
+        return int(inserted_pk)
+
+    async def delete_backtest_trades_in_range(
+        self,
+        symbol: str,
+        start_dt: datetime,
+        end_dt: datetime,
+        saved_backtest_id: Optional[int] = None,
+    ) -> int:
+        if not self._engine:
+            raise RuntimeError("Storage not initialized")
+
+        def _normalize(dt: datetime) -> datetime:
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+
+        start_dt = _normalize(start_dt)
+        end_dt = _normalize(end_dt)
+        conditions = [
+            backtest_trades_table.c.symbol == symbol,
+            backtest_trades_table.c.entry_time >= start_dt,
+            backtest_trades_table.c.entry_time < end_dt,
+        ]
+        if saved_backtest_id is not None:
+            conditions.append(backtest_trades_table.c.saved_config_id == saved_backtest_id)
+        async with self._engine.begin() as conn:
+            result = await conn.execute(delete(backtest_trades_table).where(*conditions))
+            return result.rowcount if hasattr(result, "rowcount") else 0
 
     async def has_ticks_since(self, symbol: str, since_time_msc: int) -> bool:
         await self.ensure_initialized()
@@ -211,6 +601,15 @@ class Storage:
         async with self.engine.connect() as conn:
             result = await conn.execute(stmt)
             return result.first() is not None
+
+    async def latest_tick_msc(self, symbol: str) -> Optional[int]:
+        """Lấy timestamp (ms) của tick mới nhất trong DB cho symbol."""
+        await self.ensure_initialized()
+        stmt = select(func.max(ticks_table.c.time_msc)).where(ticks_table.c.symbol == symbol)
+        async with self.engine.connect() as conn:
+            result = await conn.execute(stmt)
+            value = result.scalar()
+        return int(value) if value is not None else None
 
     async def fetch_ticks_range(self, symbol: str, start_msc: int, end_msc: int) -> List[Dict]:
         await self.ensure_initialized()
@@ -234,6 +633,63 @@ class Storage:
             result = await conn.execute(stmt)
             rows = result.fetchall()
         return [dict(row._mapping) for row in rows]
+
+    async def fetch_backtest_trades(
+        self,
+        symbol: str,
+        start_dt: datetime,
+        end_dt: datetime,
+        saved_config_id: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Lấy các backtest_trades trong khoảng thời gian."""
+        await self.ensure_initialized()
+
+        def _normalize(dt: datetime) -> datetime:
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+
+        start_dt = _normalize(start_dt)
+        end_dt = _normalize(end_dt)
+        conditions = [
+            backtest_trades_table.c.symbol == symbol,
+            backtest_trades_table.c.exit_time >= start_dt,
+            backtest_trades_table.c.exit_time <= end_dt,
+        ]
+        if saved_config_id:
+            conditions.append(backtest_trades_table.c.saved_config_id == saved_config_id)
+        stmt = (
+            select(
+                backtest_trades_table.c.run_id,
+                backtest_trades_table.c.symbol,
+                backtest_trades_table.c.saved_config_id,
+                backtest_trades_table.c.side,
+                backtest_trades_table.c.entry_time,
+                backtest_trades_table.c.exit_time,
+                backtest_trades_table.c.entry_price,
+                backtest_trades_table.c.exit_price,
+                backtest_trades_table.c.stop_loss,
+                backtest_trades_table.c.take_profit,
+                backtest_trades_table.c.volume,
+                backtest_trades_table.c.pnl,
+                backtest_trades_table.c.pct,
+                backtest_trades_table.c.usd_pnl,
+                backtest_trades_table.c.run_start,
+                backtest_trades_table.c.run_end,
+            )
+            .where(*conditions)
+            .order_by(backtest_trades_table.c.exit_time)
+        )
+        async with self.engine.connect() as conn:
+            result = await conn.execute(stmt)
+            rows = result.fetchall()
+        return [dict(row._mapping) for row in rows]
+
+
+def _start_of_day_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def _ensure_datetime(row: Dict) -> None:

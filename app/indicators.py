@@ -4,6 +4,7 @@ This module provides functions for calculating various technical indicators
 using tick data from the database.
 """
 from typing import List, Optional
+import re
 import numpy as np
 import pandas as pd
 from sqlalchemy import select, and_
@@ -36,6 +37,33 @@ async def get_tick_data(storage: Storage,
     return df
 
 
+def _normalize_timeframe(timeframe: str) -> str:
+    """Convert common aliases to pandas-friendly frequencies (avoids warnings)."""
+    tf = str(timeframe).strip()
+    if not tf:
+        return tf
+
+    match = re.fullmatch(r"(\d+)([A-Za-z]+)", tf)
+    if match:
+        value, unit = match.groups()
+        unit_lower = unit.lower()
+        if unit_lower in {'t', 'min'}:
+            return f"{value}min"
+        if unit_lower == 'm':
+            return f"{value}ME" if unit.isupper() else f"{value}min"
+        if unit_lower == 'h':
+            return f"{value}h"
+        if unit_lower == 'd':
+            return f"{value}d"
+        if unit_lower in {'me', 'ms'}:
+            return f"{value}{unit.upper()}"
+        return f"{value}{unit_lower}"
+
+    if tf.lower() == 'm':
+        return 'ME' if tf.isupper() else 'min'
+    return tf
+
+
 def resample_ticks(df: pd.DataFrame, timeframe: str = '1min') -> pd.DataFrame:
     """Resample tick data to OHLCV format.
     
@@ -46,9 +74,10 @@ def resample_ticks(df: pd.DataFrame, timeframe: str = '1min') -> pd.DataFrame:
     Returns:
         DataFrame with OHLCV data
     """
+    tf = _normalize_timeframe(timeframe)
     # Use mid price for OHLC
     df['price'] = (df['bid'] + df['ask']) / 2
-    df_resampled = df.set_index('datetime').resample(timeframe).agg({
+    df_resampled = df.set_index('datetime').resample(tf).agg({
         'price': ['first', 'max', 'min', 'last'],
         'time_msc': 'last',  # keep last timestamp
         'bid': 'last',  # keep last bid/ask for reference

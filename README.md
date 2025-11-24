@@ -33,7 +33,7 @@ Ingest tick realtime từ MT5 vào DB (nếu bạn vẫn muốn ghi liên tục)
 
 ```bash
 python -m app.cli ingest-live \
-  --db-url postgresql+asyncpg://user:pass@localhost:5432/mt5 \
+  --db-url postgresql+asyncpg://trader:admin@localhost:5432/mt5 \
   --symbol XAUUSD \
   --interval 1.0
 ```
@@ -49,7 +49,7 @@ python -m app.cli fetch-history \
   --symbol XAUUSD \
   --start 2025-01-01 \
   --end 2025-02-01 \
-  --db-url postgresql+asyncpg://user:pass@localhost:5432/mt5 \
+  --db-url postgresql+asyncpg://trader:admin@localhost:5432/mt5 \
   --batch 2000 \
   --max-days 1
 ```
@@ -64,39 +64,55 @@ Liệt kê các symbol hiện có trong terminal MT5 đang mở:
 python -m app.cli list-symbols
 ```
 
+### `summarize_backtest_trades.py`
+Tổng hợp nhanh kết quả backtest đã lưu trong bảng `backtest_trades`:
+
+```bash
+python summarize_backtest_trades.py \
+  --db-url postgresql+asyncpg://trader:admin@localhost:5432/mt5 \
+  --top 5
+
+python summarize_backtest_trades.py \
+  --db-url postgresql+asyncpg://trader:admin@localhost:5432/mt5 \
+  --run-id bt_XAUUSD_ab12cd34
+```
+- Nếu không truyền `--run-id`, script hiển thị `top` run mới nhất (mặc định 5).
+- Script tự động chấp nhận chuỗi kết nối async (`+asyncpg`) và chuẩn hoá về driver sync để đọc dữ liệu.
+
 ### `backtest-ma` (Breakout backtest)
 Backtest chiến lược breakout đầy đủ (range detection, ATR filter, EMA confirmation, giờ giao dịch).
 
 ```bash
 python -m app.cli backtest-ma \
-  --db-url postgresql+asyncpg://user:pass@localhost:5432/mt5 \
+  --db-url postgresql+asyncpg://trader:admin@localhost:5432/mt5 \
   --symbol XAUUSD \
   --start 2025-11-05 --end 2025-11-08 \
   --fast 21 --slow 89 --timeframe 1min \
   --ma-type ema --trend 200 --spread-atr-max 0.2 \
   --reverse-exit --market-state-window 20 \
-  --risk-pct 1.0 --capital 10000 --volume 0.01 \
+  --risk-pct 0.02 --capital 100 \
   --sl-atr 2.0 --tp-atr 3.0 \
   --momentum-window 14 --momentum-threshold 0.1 \
   --range-lookback 40 --range-min-atr 0.9 --range-min-points 0.6 \
   --breakout-buffer-atr 0.6 --breakout-confirmation-bars 2 \
   --atr-baseline-window 14 --atr-multiplier-min 0.8 --atr-multiplier-max 3.5 \
-  --size-from-risk
 ```
 - Lưu toàn bộ lệnh breakout (entry/exit/SL/TP và PnL) vào bảng `backtest_trades` trong DB cùng `run_id` để tra cứu lại.
 - Có thể kết hợp thêm `--sl-pips/--tp-pips/--pip-size` hoặc `--momentum-type pct`.
-- `--trading-hours` tùy chọn; nếu bỏ trống backtest sẽ xét toàn bộ phiên (24h) trừ khi preset có cấu hình riêng.
+- `--trading-hours` tùy chọn; nếu bỏ trống backtest sẽ xét toàn bộ phiên (24h).
+- `--risk-pct` nhập dạng số thập phân (ví dụ 0.02 = 2% vốn mỗi lệnh) dùng cho tính khối lượng tự động theo % risk.
+- Khi chọn khoảng nhiều ngày, script sẽ tự chia từng ngày, xoá kết quả cũ trong `backtest_trades` của ngày đó rồi chạy lại để tránh dữ liệu lặp.
 
 ### `resample_ticks_to_bars`
 Chuyển dữ liệu tick sang bảng OHLC (`bars_5m`) phục vụ tối ưu breakout nhanh hơn.
 
 ```bash
 python resample_ticks_to_bars.py \
-  --db-url postgresql://user:pass@localhost:5432/mt5 \
+  --db-url postgresql://trader:admin@localhost:5432/mt5 \
   --tick-table ticks \
   --bars-table bars_5m \
   --symbol XAUUSD \
-  --start 2025-11-01T00:00:00 --end 2025-11-19T00:00:00
+  --start 2025-08-01T00:00:00 --end 2025-11-19T00:00:00
 ```
 - Script sẽ đọc tick theo symbol + khoảng thời gian, resample về chu kỳ mặc định `5min`, xoá bar trùng và ghi vào bảng `bars_5m`.
 - Sau khi đã có `bars_5m`, các script tối ưu (`optimize_wrap.py`, `optimize_breakout_params_v2.py`) sẽ chỉ query bảng này thay vì đọc nguyên bảng tick.
@@ -106,13 +122,13 @@ Chạy chiến lược breakout realtime (paper mặc định, thêm `--live` đ
 
 ```bash
 python -m app.cli run-live-ma \
-  --db-url postgresql+asyncpg://user:pass@localhost:5432/mt5 \
+  --db-url postgresql+asyncpg://trader:admin@localhost:5432/mt5 \
   --symbol XAUUSD \
   --fast 21 --slow 89 --timeframe 1min \
   --ma-type ema --trend 200 \
   --spread-atr-max 0.2 --reverse-exit --market-state-window 20 \
-  --volume 0.10 --capital 10000 --risk-pct 1.0 \
-  --contract-size 100 --size-from-risk \
+  --capital 100 --risk-pct 0.02 \
+  --contract-size 100 \
   --sl-atr 2.0 --tp-atr 3.0 \
   --momentum-window 14 --momentum-threshold 0.1 \
   --range-lookback 40 --range-min-atr 0.9 --range-min-points 0.6 \
@@ -121,17 +137,19 @@ python -m app.cli run-live-ma \
   --ensure-history-hours 24 --history-batch 2000 --history-max-days 5 \
   --ingest-live-db --poll 1.0 [--live]
 ```
-- `--size-from-risk` tự tính volume dựa trên capital/risk_pct/contract_size/stop-distance.
+- Khối lượng luôn tính theo % risk dựa trên capital/risk_pct/contract_size/stop-distance.
 - `--range-*`, `--breakout-*`, `--atr-*` tinh chỉnh độ rộng range, buffer và ATR baseline dùng để xác nhận breakout.
-- `--trading-hours` đảm bảo bot chỉ trade trong khung giờ breakout; nếu không truyền (và preset không định nghĩa) bot sẽ chạy 24h.
+- `--trading-hours` đảm bảo bot chỉ trade trong khung giờ breakout; nếu không truyền bot sẽ chạy 24h.
 - Có thể chuyển `--momentum-type pct` nếu muốn xác nhận bằng %change thay vì MACD.
 - Khi bật `--live`, đảm bảo MT5 terminal đang chạy và tài khoản có quyền giao dịch.
+- `--risk-pct` nhập dạng số thập phân (ví dụ 0.02 = 2% vốn) dùng cho tính khối lượng tự động.
+- Sau khi backtest trên dashboard, có thể bấm **Lưu cấu hình** để ghi toàn bộ tham số + summary kết quả vào bảng `saved_backtests` trong DB để tra cứu về sau.
 
 > Mỗi lệnh đều hỗ trợ `-h` để xem danh sách tham số chi tiết: `python -m app.cli <command> -h`.
 
 ## Dashboard breakout
 - Chạy FastAPI (`uvicorn app.main:app --reload`) và truy cập `http://localhost:8000/dashboard`.
-- Form chính cho phép nhập toàn bộ tham số breakout (preset hoặc custom), bấm **Start** để chạy live bot, **Backtest breakout** để backtest hoặc **Fetch history** (MT5) để bổ sung dữ liệu.
+- Form chính cho phép nhập toàn bộ tham số breakout (tự khai báo hoặc nạp từ config đã lưu), bấm **Start** để chạy live bot, **Backtest breakout** để backtest hoặc **Fetch history** (MT5) để bổ sung dữ liệu.
 - Khối “Trạng thái breakout” hiển thị quote, vị thế, tín hiệu cuối và lý do đang chờ (ví dụ “Range quá hẹp”, “MACD chưa xác nhận”).
 
 ### Cấu hình MetaTrader5
