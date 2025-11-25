@@ -122,6 +122,8 @@ def main() -> None:
     backtest_ma_parser.add_argument("--stop-hunt-min-atr-ratio", type=float, default=0.2)
     backtest_ma_parser.add_argument("--stop-hunt-max-atr-ratio", type=float, default=1.0)
     backtest_ma_parser.add_argument("--missing-tick-chance", type=float, default=0.005)
+    backtest_ma_parser.add_argument("--min-volume-multiplier", type=float, default=1.1)
+    backtest_ma_parser.add_argument("--slippage-pips", type=float, default=3.0)
 
     live_parser = sub.add_parser("run-live-ma", help="Chạy chiến lược MA Crossover realtime")
     live_parser.add_argument("--db-url", required=True)
@@ -180,6 +182,33 @@ def main() -> None:
     live_parser.add_argument("--cooldown-minutes", type=int, default=None)
     live_parser.add_argument("--max-holding-minutes", type=int, default=None,
                              help="Tự đóng lệnh sau số phút nắm giữ nếu được đặt")
+    live_parser.add_argument("--order-retry-times", type=int, default=3)
+    live_parser.add_argument("--order-retry-delay-ms", type=int, default=300)
+    live_parser.add_argument("--safety-entry-atr-mult", type=float, default=0.1)
+    live_parser.add_argument("--spread-samples", type=int, default=5)
+    live_parser.add_argument("--spread-sample-delay-ms", type=int, default=8)
+    live_parser.add_argument("--allowed-deviation-points", type=int, default=300)
+    live_parser.add_argument("--min-volume-multiplier", type=float, default=1.1)
+    live_parser.add_argument("--slippage-pips", type=float, default=3.0)
+    live_parser.add_argument("--volatility-spike-atr-mult", type=float, default=0.8)
+    live_parser.add_argument("--spike-delay-ms", type=int, default=50)
+    live_parser.add_argument("--skip-reset-window", type=int, choices=[0, 1], default=1)
+    live_parser.add_argument("--latency-min-ms", type=int, default=200)
+    live_parser.add_argument("--latency-max-ms", type=int, default=400)
+    live_parser.add_argument("--slippage-usd", type=float, default=0.05)
+    live_parser.add_argument("--order-reject-prob", type=float, default=0.03)
+    live_parser.add_argument("--base-spread-points", type=int, default=50)
+    live_parser.add_argument("--spread-spike-chance", type=float, default=0.02)
+    live_parser.add_argument("--spread-spike-min-points", type=int, default=80)
+    live_parser.add_argument("--spread-spike-max-points", type=int, default=300)
+    live_parser.add_argument("--slip-per-atr-ratio", type=float, default=0.2)
+    live_parser.add_argument("--requote-prob", type=float, default=0.01)
+    live_parser.add_argument("--offquotes-prob", type=float, default=0.005)
+    live_parser.add_argument("--timeout-prob", type=float, default=0.005)
+    live_parser.add_argument("--stop-hunt-chance", type=float, default=0.015)
+    live_parser.add_argument("--stop-hunt-min-atr-ratio", type=float, default=0.2)
+    live_parser.add_argument("--stop-hunt-max-atr-ratio", type=float, default=1.0)
+    live_parser.add_argument("--missing-tick-chance", type=float, default=0.005)
     live_parser.add_argument("--allow-buy", type=int, choices=[0, 1], default=1)
     live_parser.add_argument("--allow-sell", type=int, choices=[0, 1], default=1)
     live_parser.add_argument("--poll", type=float, default=1.0)
@@ -283,6 +312,8 @@ def main() -> None:
                 stop_hunt_min_atr_ratio=args.stop_hunt_min_atr_ratio,
                 stop_hunt_max_atr_ratio=args.stop_hunt_max_atr_ratio,
                 missing_tick_chance=args.missing_tick_chance,
+                min_volume_multiplier=args.min_volume_multiplier,
+                slippage_pips=args.slippage_pips,
             )
         )
     elif args.command == "run-live-ma":
@@ -340,6 +371,33 @@ def main() -> None:
                 history_batch=args.history_batch,
                 history_max_days=args.history_max_days,
                 ingest_live_db=args.ingest_live_db,
+                min_volume_multiplier=args.min_volume_multiplier,
+                slippage_pips=args.slippage_pips,
+                order_retry_times=args.order_retry_times,
+                order_retry_delay_ms=args.order_retry_delay_ms,
+                safety_entry_atr_mult=args.safety_entry_atr_mult,
+                spread_samples=args.spread_samples,
+                spread_sample_delay_ms=args.spread_sample_delay_ms,
+                allowed_deviation_points=args.allowed_deviation_points,
+                volatility_spike_atr_mult=args.volatility_spike_atr_mult,
+                spike_delay_ms=args.spike_delay_ms,
+                skip_reset_window=bool(args.skip_reset_window),
+                latency_min_ms=args.latency_min_ms,
+                latency_max_ms=args.latency_max_ms,
+                slippage_usd=args.slippage_usd,
+                order_reject_prob=args.order_reject_prob,
+                base_spread_points=args.base_spread_points,
+                spread_spike_chance=args.spread_spike_chance,
+                spread_spike_min_points=args.spread_spike_min_points,
+                spread_spike_max_points=args.spread_spike_max_points,
+                slip_per_atr_ratio=args.slip_per_atr_ratio,
+                requote_prob=args.requote_prob,
+                offquotes_prob=args.offquotes_prob,
+                timeout_prob=args.timeout_prob,
+                stop_hunt_chance=args.stop_hunt_chance,
+                stop_hunt_min_atr_ratio=args.stop_hunt_min_atr_ratio,
+                stop_hunt_max_atr_ratio=args.stop_hunt_max_atr_ratio,
+                missing_tick_chance=args.missing_tick_chance,
             )
         )
     else:  # pragma: no cover - fallback

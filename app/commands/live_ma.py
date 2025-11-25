@@ -67,6 +67,33 @@ async def run_live_strategy(
     max_losses_per_session: Optional[int],
     cooldown_minutes: Optional[int],
     max_holding_minutes: Optional[int] = None,
+    order_retry_times: Optional[int] = 3,
+    order_retry_delay_ms: Optional[int] = 300,
+    safety_entry_atr_mult: float = 0.1,
+    spread_samples: int = 5,
+    spread_sample_delay_ms: int = 8,
+    allowed_deviation_points: int = 300,
+    volatility_spike_atr_mult: float = 0.8,
+    spike_delay_ms: int = 50,
+    skip_reset_window: bool = True,
+    latency_min_ms: int = 200,
+    latency_max_ms: int = 400,
+    slippage_usd: float = 0.05,
+    order_reject_prob: float = 0.03,
+    base_spread_points: int = 50,
+    spread_spike_chance: float = 0.02,
+    spread_spike_min_points: int = 80,
+    spread_spike_max_points: int = 300,
+    slip_per_atr_ratio: float = 0.2,
+    requote_prob: float = 0.01,
+    offquotes_prob: float = 0.005,
+    timeout_prob: float = 0.005,
+    stop_hunt_chance: float = 0.015,
+    stop_hunt_min_atr_ratio: float = 0.2,
+    stop_hunt_max_atr_ratio: float = 1.0,
+    missing_tick_chance: float = 0.005,
+    min_volume_multiplier: float = 1.1,
+    slippage_pips: Optional[float] = 3.0,
     allow_buy: bool = True,
     allow_sell: bool = True,
     event_handler: Optional[Callable[[Dict[str, Any]], Awaitable[None] | None]] = None,
@@ -150,6 +177,34 @@ async def run_live_strategy(
     cfg.max_holding_minutes = max_holding_minutes
     cfg.allow_buy = allow_buy
     cfg.allow_sell = allow_sell
+    cfg.order_retry_times = 3 if order_retry_times is None else int(order_retry_times)        # ← THÊM
+    cfg.order_retry_delay_ms = 300 if order_retry_delay_ms is None else int(order_retry_delay_ms)  # ← THÊM
+    cfg.safety_entry_atr_mult = safety_entry_atr_mult
+    cfg.spread_samples = max(1, int(spread_samples or 1))
+    cfg.spread_sample_delay_ms = max(0, int(spread_sample_delay_ms or 0))
+    cfg.allowed_deviation_points = max(0, int(allowed_deviation_points or 0))
+    cfg.volatility_spike_atr_mult = max(0.0, float(volatility_spike_atr_mult or 0.0))
+    cfg.spike_delay_ms = max(0, int(spike_delay_ms or 0))
+    cfg.skip_reset_window = bool(skip_reset_window)
+    cfg.latency_min_ms = max(0, int(latency_min_ms or 0))
+    cfg.latency_max_ms = max(cfg.latency_min_ms, int(latency_max_ms or cfg.latency_min_ms))
+    cfg.slippage_usd = max(0.0, float(slippage_usd or 0.0))
+    cfg.order_reject_prob = max(0.0, float(order_reject_prob or 0.0))
+    cfg.base_spread_points = max(0, int(base_spread_points or 0))
+    cfg.spread_spike_chance = max(0.0, float(spread_spike_chance or 0.0))
+    cfg.spread_spike_min_points = max(0, int(spread_spike_min_points or 0))
+    cfg.spread_spike_max_points = max(cfg.spread_spike_min_points, int(spread_spike_max_points or cfg.spread_spike_min_points))
+    cfg.slip_per_atr_ratio = max(0.0, float(slip_per_atr_ratio or 0.0))
+    cfg.requote_prob = max(0.0, float(requote_prob or 0.0))
+    cfg.offquotes_prob = max(0.0, float(offquotes_prob or 0.0))
+    cfg.timeout_prob = max(0.0, float(timeout_prob or 0.0))
+    cfg.stop_hunt_chance = max(0.0, float(stop_hunt_chance or 0.0))
+    cfg.stop_hunt_min_atr_ratio = max(0.0, float(stop_hunt_min_atr_ratio or 0.0))
+    cfg.stop_hunt_max_atr_ratio = max(cfg.stop_hunt_min_atr_ratio, float(stop_hunt_max_atr_ratio or cfg.stop_hunt_min_atr_ratio))
+    cfg.missing_tick_chance = max(0.0, float(missing_tick_chance or 0.0))
+    cfg.min_volume_multiplier = min_volume_multiplier
+    cfg.slippage_pips = slippage_pips
+    cfg.max_holding_minutes = max_holding_minutes or 180  # nếu None thì mặc định 3 tiếng
 
     if sl_pips is not None and tp_pips is not None:
         setattr(cfg, 'sl_pips', float(sl_pips))

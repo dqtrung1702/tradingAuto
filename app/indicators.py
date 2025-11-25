@@ -78,14 +78,14 @@ def resample_ticks(df: pd.DataFrame, timeframe: str = '1min') -> pd.DataFrame:
     # Use mid price for OHLC
     df['price'] = (df['bid'] + df['ask']) / 2
     df_resampled = df.set_index('datetime').resample(tf).agg({
-        'price': ['first', 'max', 'min', 'last'],
+        'price': ['first', 'max', 'min', 'last', 'count'],
         'time_msc': 'last',  # keep last timestamp
         'bid': 'last',  # keep last bid/ask for reference
-        'ask': 'last'
+        'ask': 'last',
     })
     
     # Flatten column names
-    df_resampled.columns = ['open', 'high', 'low', 'close', 'timestamp', 'bid', 'ask']
+    df_resampled.columns = ['open', 'high', 'low', 'close', 'tick_volume', 'timestamp', 'bid', 'ask']
     
     # Calculate mid price and spread
     df_resampled['spread'] = df_resampled['ask'] - df_resampled['bid']

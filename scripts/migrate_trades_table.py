@@ -132,6 +132,8 @@ SAVED_BT_COLUMNS = {
     "stop_hunt_min_atr_ratio": "FLOAT",
     "stop_hunt_max_atr_ratio": "FLOAT",
     "missing_tick_chance": "FLOAT",
+    "min_volume_multiplier": "FLOAT",
+    "slippage_pips": "FLOAT",
 }
 
 

@@ -86,6 +86,8 @@ class MAConfig:
     volatility_spike_atr_mult: float = 0.8
     spike_delay_ms: int = 50
     skip_reset_window: bool = True  # bỏ qua khung 23:59-00:10 (đổi tùy broker)
+    min_volume_multiplier: float = 0.0  # chỉ trade khi tick_volume > avg * multiplier
+    slippage_pips: Optional[float] = None  # ngưỡng trượt giá tối đa (pips)
 
 
 @dataclass
@@ -356,6 +358,9 @@ class MACrossoverStrategy:
         )
         df['range_high'] = df['high'].rolling(window=range_window, min_periods=range_window).max().shift(1)
         df['range_low'] = df['low'].rolling(window=range_window, min_periods=range_window).min().shift(1)
+        if 'tick_volume' in df.columns:
+            vol_window = max(5, range_window)
+            df['tick_volume_avg'] = df['tick_volume'].rolling(window=vol_window, min_periods=vol_window).mean().shift(1)
 
         atr_window = max(2, int(getattr(self.config, 'atr_baseline_window', 14)))
         df['atr_baseline'] = df['atr'].rolling(window=atr_window, min_periods=1).mean()
@@ -392,6 +397,13 @@ class MACrossoverStrategy:
             window = max(2, int(getattr(self.config, 'atr_baseline_window', 14)))
             tail = df['atr'].iloc[max(0, idx - window): idx + 1]
             atr_baseline = float(tail.mean()) if not tail.empty else atr_value
+
+        min_vol_mult = max(0.0, float(getattr(self.config, 'min_volume_multiplier', 0.0) or 0.0))
+        if min_vol_mult > 0 and 'tick_volume' in df.columns:
+            vol_current = float(current.get('tick_volume') or 0.0)
+            vol_avg = float(current.get('tick_volume_avg') or 0.0)
+            if vol_avg > 0 and vol_current < vol_avg * min_vol_mult:
+                return False, False, f"Volume {vol_current:.0f} thấp hơn {min_vol_mult:.1f}x avg {vol_avg:.0f}"
 
         atr_min_mult = max(0.1, float(getattr(self.config, 'atr_multiplier_min', 0.8)))
         atr_max_mult = max(atr_min_mult + 0.1, float(getattr(self.config, 'atr_multiplier_max', 4.0)))
@@ -672,6 +684,14 @@ class MACrossoverStrategy:
                 raise RuntimeError("MetaTrader5 library không khả dụng cho chế độ live")
             # Gửi lệnh qua MT5
             mt5_order_type = mt5.ORDER_TYPE_BUY if order_type == 'buy' else mt5.ORDER_TYPE_SELL
+            deviation_pts = int(getattr(self.config, "allowed_deviation_points", 10) or 10)
+            slip_pips = getattr(self.config, "slippage_pips", None)
+            try:
+                pip_size = float(getattr(self.config, "pip_size", 0.01) or 0.01)
+                if slip_pips is not None and pip_size > 0:
+                    deviation_pts = max(deviation_pts, int(abs(slip_pips) / pip_size))
+            except Exception:
+                pass
             request = {
                 "action": mt5.TRADE_ACTION_DEAL,
                 "symbol": self.config.symbol,
@@ -680,7 +700,7 @@ class MACrossoverStrategy:
                 "price": price,
                 "sl": sl,
                 "tp": tp,
-                "deviation": int(getattr(self.config, "allowed_deviation_points", 10) or 10),
+                "deviation": deviation_pts,
                 "magic": 234000,
                 "comment": "MA crossover",
                 "type_time": mt5.ORDER_TIME_GTC,

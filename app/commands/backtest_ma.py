@@ -99,6 +99,8 @@ async def run_backtest(
     stop_hunt_max_atr_ratio: float = 0.0,
     missing_tick_chance: float = 0.0,
     return_summary: bool = False,
+    min_volume_multiplier: float = 1.1,
+    slippage_pips: Optional[float] = 3.0,
 ) -> None:
     start = datetime.fromisoformat(start_str)
     end = datetime.fromisoformat(end_str)
@@ -194,6 +196,8 @@ async def run_backtest(
             "stop_hunt_min_atr_ratio": stop_hunt_min_atr_ratio,
             "stop_hunt_max_atr_ratio": stop_hunt_max_atr_ratio,
             "missing_tick_chance": missing_tick_chance,
+            "min_volume_multiplier": min_volume_multiplier,
+            "slippage_pips": slippage_pips,
         }
         try:
             saved_config_id = await storage.insert_saved_backtest(config=config_payload)
@@ -259,6 +263,8 @@ async def run_backtest(
     config.volatility_spike_atr_mult = max(0.0, float(volatility_spike_atr_mult or 0.0))
     config.spike_delay_ms = max(0, int(spike_delay_ms or 0))
     config.skip_reset_window = bool(skip_reset_window)
+    config.min_volume_multiplier = min_volume_multiplier
+    config.slippage_pips = slippage_pips
 
     try:
         config.sl_pips = sl_pips  # type: ignore[attr-defined]
@@ -288,6 +294,8 @@ async def run_backtest(
     safety_mult = max(0.0, float(safety_entry_atr_mult or 0.0))
     vol_spike_mult = max(0.0, float(volatility_spike_atr_mult or 0.0))
     skip_reset = bool(skip_reset_window)
+    volume_mult = max(0.0, float(min_volume_multiplier or 0.0))
+    slip_pips = float(slippage_pips) if slippage_pips is not None else None
 
     async def _run_range(range_start: datetime, range_end: datetime, visible_start_dt: Optional[datetime] = None) -> Dict[str, Any]:
         df = await strategy.calculate_signals(storage, range_start, range_end)
@@ -298,6 +306,9 @@ async def run_backtest(
                 df['action'] = df['action'].fillna(0).apply(lambda x: int(x) if pd.notna(x) else 0)
         else:
             df['action'] = 0
+        if volume_mult > 0 and 'tick_volume' in df.columns:
+            vol_window = max(5, int(range_lookback or 5))
+            df['tick_volume_avg'] = df['tick_volume'].rolling(window=vol_window, min_periods=vol_window).mean().shift(1)
 
         required = ['datetime', 'open', 'high', 'low', 'close', 'fast_ma', 'slow_ma', 'atr']
         for col in required:
@@ -352,6 +363,12 @@ async def run_backtest(
                 spread_val = _compute_spread(pip)
                 mid_price = entry_price
                 slipped_entry = _apply_slippage(mid_price, side, atr)
+                if slip_pips is not None and pip > 0:
+                    max_slip = abs(slip_pips) * pip
+                    if side == 'buy' and slipped_entry - entry_price > max_slip:
+                        slipped_entry = entry_price + max_slip
+                    if side == 'sell' and entry_price - slipped_entry > max_slip:
+                        slipped_entry = entry_price - max_slip
                 if spread_val > 0:
                     half = spread_val / 2.0
                     slipped_entry = slipped_entry + half if side == 'buy' else slipped_entry - half
@@ -387,6 +404,12 @@ async def run_backtest(
 
             if action == 2:
                 entry_bar = df.iloc[i + 1]
+                if volume_mult > 0:
+                    vol_avg = float(entry_bar.get('tick_volume_avg') or 0.0)
+                    vol_cur = float(entry_bar.get('tick_volume') or 0.0)
+                    if vol_avg > 0 and vol_cur < vol_avg * volume_mult:
+                        i += 1
+                        continue
                 entry_price = float(entry_bar['open'])
                 atr_val = float(entry_bar['atr'])
                 entry_time = _to_datetime(entry_bar['datetime'])
@@ -497,6 +520,12 @@ async def run_backtest(
 
             if action == -2:
                 entry_bar = df.iloc[i + 1]
+                if volume_mult > 0:
+                    vol_avg = float(entry_bar.get('tick_volume_avg') or 0.0)
+                    vol_cur = float(entry_bar.get('tick_volume') or 0.0)
+                    if vol_avg > 0 and vol_cur < vol_avg * volume_mult:
+                        i += 1
+                        continue
                 entry_price = float(entry_bar['open'])
                 atr_val = float(entry_bar['atr'])
                 entry_time = _to_datetime(entry_bar['datetime'])

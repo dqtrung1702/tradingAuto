@@ -94,6 +94,8 @@ class BacktestRequest(BaseModel):
     stop_hunt_min_atr_ratio: float = 0.2
     stop_hunt_max_atr_ratio: float = 1.0
     missing_tick_chance: float = 0.005
+    min_volume_multiplier: float = 1.1
+    slippage_pips: Optional[float] = 3.0
 
 
 class FetchHistoryRequest(BaseModel):
@@ -331,6 +333,8 @@ async def run_backtest_endpoint(payload: BacktestRequest) -> dict:
             stop_hunt_min_atr_ratio=payload.stop_hunt_min_atr_ratio,
             stop_hunt_max_atr_ratio=payload.stop_hunt_max_atr_ratio,
             missing_tick_chance=payload.missing_tick_chance,
+            min_volume_multiplier=payload.min_volume_multiplier,
+            slippage_pips=payload.slippage_pips,
             return_summary=True,
         )
     except asyncio.CancelledError:
@@ -915,6 +919,14 @@ DASHBOARD_HTML = """
               <input name="order_retry_delay_ms" type="number" min="0" value="0" />
             </div>
             <div>
+              <label>Min volume multiplier</label>
+              <input name="min_volume_multiplier" type="number" step="0.1" value="1.1" />
+            </div>
+            <div>
+              <label>Slippage (pips)</label>
+              <input name="slippage_pips" type="number" step="any" value="3" />
+            </div>
+            <div>
               <label>Contract size</label>
               <input name="contract_size" type="number" value="100" />
             </div>
@@ -1272,6 +1284,16 @@ DASHBOARD_HTML = """
               'max_loss_streak',
               'max_losses_per_session',
               'cooldown_minutes',
+              'order_retry_times',
+              'spread_samples',
+              'spread_sample_delay_ms',
+              'allowed_deviation_points',
+              'spike_delay_ms',
+              'latency_min_ms',
+              'latency_max_ms',
+              'base_spread_points',
+              'spread_spike_min_points',
+              'spread_spike_max_points',
             ].includes(key)
           ) {
             payload[key] = parseInt(numericVal, 10);
@@ -1300,6 +1322,22 @@ DASHBOARD_HTML = """
               'atr_multiplier_max',
               'max_daily_loss',
               'adx_threshold',
+              'order_retry_delay_ms',
+              'min_volume_multiplier',
+              'slippage_pips',
+              'safety_entry_atr_mult',
+              'volatility_spike_atr_mult',
+              'slippage_usd',
+              'order_reject_prob',
+              'spread_spike_chance',
+              'slip_per_atr_ratio',
+              'requote_prob',
+              'offquotes_prob',
+              'timeout_prob',
+              'stop_hunt_chance',
+              'stop_hunt_min_atr_ratio',
+              'stop_hunt_max_atr_ratio',
+              'missing_tick_chance',
             ].includes(key)
           ) {
             payload[key] = parseFloat(numericVal);

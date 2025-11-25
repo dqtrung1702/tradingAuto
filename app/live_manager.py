@@ -88,6 +88,33 @@ class LiveStartRequest(BaseModel):
     allow_buy: bool = True
     allow_sell: bool = True
     max_holding_minutes: Optional[int] = None
+    order_retry_times: int = 3
+    order_retry_delay_ms: int = 300
+    safety_entry_atr_mult: float = 0.1
+    spread_samples: int = 5
+    spread_sample_delay_ms: int = 8
+    allowed_deviation_points: int = 300
+    volatility_spike_atr_mult: float = 0.8
+    spike_delay_ms: int = 50
+    skip_reset_window: bool = True
+    latency_min_ms: int = 200
+    latency_max_ms: int = 400
+    slippage_usd: float = 0.05
+    order_reject_prob: float = 0.03
+    base_spread_points: int = 50
+    spread_spike_chance: float = 0.02
+    spread_spike_min_points: int = 80
+    spread_spike_max_points: int = 300
+    slip_per_atr_ratio: float = 0.2
+    requote_prob: float = 0.01
+    offquotes_prob: float = 0.005
+    timeout_prob: float = 0.005
+    stop_hunt_chance: float = 0.015
+    stop_hunt_min_atr_ratio: float = 0.2
+    stop_hunt_max_atr_ratio: float = 1.0
+    missing_tick_chance: float = 0.005
+    min_volume_multiplier: float = 1.1
+    slippage_pips: Optional[float] = 3.0
 
 
 class LiveStatus(BaseModel):

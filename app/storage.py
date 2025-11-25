@@ -180,6 +180,8 @@ saved_backtests_table = Table(
     Column("stop_hunt_min_atr_ratio", Float, nullable=True),
     Column("stop_hunt_max_atr_ratio", Float, nullable=True),
     Column("missing_tick_chance", Float, nullable=True),
+    Column("min_volume_multiplier", Float, nullable=True),
+    Column("slippage_pips", Float, nullable=True),
     UniqueConstraint("config_hash", name="uq_saved_backtests_config_hash"),
 )
 
@@ -264,6 +266,8 @@ SAVED_BACKTEST_CONFIG_FIELDS: List[str] = [
     "stop_hunt_min_atr_ratio",
     "stop_hunt_max_atr_ratio",
     "missing_tick_chance",
+    "min_volume_multiplier",
+    "slippage_pips",
 ]
 
 
