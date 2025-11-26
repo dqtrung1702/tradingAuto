@@ -217,6 +217,15 @@ class MACrossoverStrategy:
         if len(self._spread_history) > 20:
             self._spread_history = self._spread_history[-20:]
         current_bar = self._df.iloc[-1]
+        try:
+            atr_val_cur = float(current_bar.atr) if pd.notna(current_bar.atr) else None
+            atr_base_cur = float(current_bar.atr_baseline) if hasattr(current_bar, "atr_baseline") and pd.notna(current_bar.atr_baseline) else None
+            self._last_breakout_info = {
+                "atr": atr_val_cur,
+                "atr_baseline": atr_base_cur,
+            }
+        except Exception:
+            self._last_breakout_info = None
 
         # Kiểm tra điều kiện đóng lệnh nếu đang có vị thế
         if self.current_position:
@@ -415,14 +424,26 @@ class MACrossoverStrategy:
             return False, False, f"ATR {atr_value:.2f} vượt ngưỡng {atr_max:.2f} (quá biến động)"
 
         range_height = range_high - range_low
+        range_window_used = max(
+            5,
+            int(
+                max(
+                    getattr(self.config, 'range_lookback', 30),
+                    getattr(self.config, 'market_state_window', 30),
+                )
+            ),
+        )
+        min_height_from_points = float(getattr(self.config, 'range_min_points', 0.5))
+        min_height_from_atr = atr_value * float(getattr(self.config, 'range_min_atr', 0.8))
         min_height = max(
-            float(getattr(self.config, 'range_min_points', 0.5)),
-            atr_value * float(getattr(self.config, 'range_min_atr', 0.8)),
+            min_height_from_points,
+            min_height_from_atr,
         )
         if range_height < min_height:
             return False, False, f"Vùng range quá hẹp ({range_height:.2f} < {min_height:.2f})"
 
-        buffer = atr_value * float(getattr(self.config, 'breakout_buffer_atr', 0.5))
+        breakout_buffer_mult = float(getattr(self.config, 'breakout_buffer_atr', 0.5))
+        buffer = atr_value * breakout_buffer_mult
         confirm_bars = max(1, int(getattr(self.config, 'breakout_confirmation_bars', 1)))
         start_idx = max(0, idx - confirm_bars + 1)
         recent = df.iloc[start_idx: idx + 1]
@@ -431,18 +452,30 @@ class MACrossoverStrategy:
             "range_low": range_low,
             "buffer": buffer,
             "atr": atr_value,
+            "atr_baseline": atr_baseline,
+            "atr_min": atr_min,
+            "atr_max": atr_max,
+            "range_height": range_height,
+            "min_height": min_height,
+            "min_height_from_atr": min_height_from_atr,
+            "min_height_from_points": min_height_from_points,
+            "range_window": range_window_used,
+            "buffer_formula": f"{atr_value:.2f} * {breakout_buffer_mult}",
+            "range_formula": f"rolling high/low {range_window_used} bars (shifted 1)",
         }
 
         closes = recent['close']
+        highs = recent['high'] if 'high' in recent.columns else closes
+        lows = recent['low'] if 'low' in recent.columns else closes
+        high_now = current.high if hasattr(current, 'high') else current.close
+        low_now = current.low if hasattr(current, 'low') else current.close
         bullish_ready = bool(
             closes.isna().sum() == 0
-            and closes.min() > range_high
-            and current.close > range_high + buffer
+            and high_now >= range_high + buffer
         )
         bearish_ready = bool(
             closes.isna().sum() == 0
-            and closes.max() < range_low
-            and current.close < range_low - buffer
+            and low_now <= range_low - buffer
         )
 
         # EMA trend filter
@@ -513,12 +546,39 @@ class MACrossoverStrategy:
                 bearish_ready = False
                 reason = f"Momentum SELL yếu (MACD {hist:.4f}, RSI {rsi_val:.2f})"
 
+        info = self._last_breakout_info or {}
+
+        if momentum_type == 'macd':
+            info.update({
+                "momentum_type": "macd",
+                "macd_hist": hist if 'hist' in locals() else None,
+                "macd_threshold": macd_thresh if 'macd_thresh' in locals() else getattr(self.config, 'macd_threshold', None),
+            })
+        elif momentum_type == 'pct':
+            info.update({
+                "momentum_type": "pct",
+                "pct_change": pct_change if 'pct_change' in locals() else None,
+                "pct_threshold": threshold if 'threshold' in locals() else getattr(self.config, 'momentum_threshold', None),
+            })
+        elif momentum_type == 'hybrid':
+            info.update({
+                "momentum_type": "hybrid",
+                "macd_hist": hist if 'hist' in locals() else None,
+                "macd_threshold": macd_thresh if 'macd_thresh' in locals() else getattr(self.config, 'macd_threshold', None),
+                "rsi_value": rsi_val if 'rsi_val' in locals() else None,
+                "rsi_long": rsi_long if 'rsi_long' in locals() else getattr(self.config, 'rsi_threshold_long', None),
+                "rsi_short": rsi_short if 'rsi_short' in locals() else getattr(self.config, 'rsi_threshold_short', None),
+            })
+
         if bullish_ready and not getattr(self.config, 'allow_buy', True):
             bullish_ready = False
             reason = "BUY đang bị tắt"
         if bearish_ready and not getattr(self.config, 'allow_sell', True):
             bearish_ready = False
             reason = "SELL đang bị tắt"
+
+        # lưu lại info để show trên dashboard
+        self._last_breakout_info = info
 
         if bullish_ready:
             return True, False, f"Breakout BUY xác nhận @ {current.close:.2f}"
@@ -564,13 +624,8 @@ class MACrossoverStrategy:
                 self.logger.info(f"Giá bid {bid:.5f} vượt cửa sổ an toàn SELL {min_sell:.5f}")
                 return False
 
-        # Bid/ask xác nhận thật sự phá vùng
-        if range_high is not None and range_low is not None:
-            bullish_break = bid > range_high + buffer
-            bearish_break = ask < range_low - buffer
-            if not bullish_break and not bearish_break:
-                self.logger.info("Bid/Ask chưa xác nhận phá vùng breakout")
-                return False
+        # Bỏ xác nhận thêm bằng bid/ask để breakout bám logic close/high/low ở trên
+        # (trước đây yêu cầu bid > range_high + buffer hoặc ask < range_low - buffer).
 
         return True
 
@@ -928,12 +983,17 @@ class MACrossoverStrategy:
             self.logger.error(f"Không thể lưu trade {event_type}: {exc}")
 
     async def _emit_status(self, reason: str, extra: Optional[Dict[str, Any]] = None) -> None:
+        payload_extra: Dict[str, Any] = {}
+        if self._last_breakout_info:
+            payload_extra.update(self._last_breakout_info)
+        if extra:
+            payload_extra.update(extra)
         await self._emit_event(
             {
                 "type": "status",
                 "timestamp": datetime.now(timezone.utc),
                 "reason": reason,
-                "extra": extra or {},
+                "extra": payload_extra,
             }
         )
 

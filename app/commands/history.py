@@ -79,13 +79,19 @@ def fetch_ticks_mt5(
             )
             end = now
             start = end - timedelta(days=7)
+        if end <= start:
+            raise ValueError(f"Khoảng thời gian không hợp lệ: start ({start}) phải nhỏ hơn end ({end}).")
 
         all_ticks: List[Tick] = []
         window_start = start
         while window_start < end:
             window_end = min(window_start + timedelta(days=max_days_per_call), end)
-            utc_from = int(window_start.replace(tzinfo=timezone.utc).timestamp())
-            utc_to = int(window_end.replace(tzinfo=timezone.utc).timestamp())
+            ws = window_start if window_start.tzinfo else window_start.replace(tzinfo=timezone.utc)
+            we = window_end if window_end.tzinfo else window_end.replace(tzinfo=timezone.utc)
+            utc_from = int(ws.astimezone(timezone.utc).timestamp())
+            utc_to = int(we.astimezone(timezone.utc).timestamp())
+            if utc_to <= utc_from:
+                utc_to = utc_from + 1  # đảm bảo copy_ticks_range luôn có độ dài hợp lệ
 
             print(f"Đang lấy ticks từ {window_start} đến {window_end}...")
 
@@ -101,7 +107,12 @@ def fetch_ticks_mt5(
                     sleep(retry_delay)
 
             if raw is None or len(raw) == 0:
-                print(f"Không lấy được dữ liệu cho {window_start} -> {window_end}: {last_error}")
+                reason = ""
+                if last_error and last_error != (1, "Success"):
+                    reason = f": {last_error}"
+                else:
+                    reason = ": MT5 không trả về tick nào trong khoảng thời gian yêu cầu."
+                print(f"Không lấy được dữ liệu cho {window_start} -> {window_end}{reason}")
             else:
                 window_ticks: List[Tick] = []
                 for item in raw:

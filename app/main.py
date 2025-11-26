@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import json
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any
 
@@ -19,82 +20,82 @@ from .storage import Storage, saved_backtests_table
 
 
 class BacktestRequest(BaseModel):
-    db_url: str
-    symbol: str
+    db_url: str = "postgresql+asyncpg://trader:admin@localhost:5432/mt5"
+    symbol: str = "XAUUSD"
     start: str
     end: str
-    fast: int = 8
+    fast: int = 9
     slow: int = 21
     ma_type: str = "ema"
     timeframe: str = "5min"
-    trend: int = 200
-    risk_pct: float = 0.02
-    capital: float = 100.0
-    trail_trigger_atr: float = 1.8
-    trail_atr_mult: float = 1.1
-    spread_atr_max: float = 0.08
+    trend: int = 50
+    risk_pct: float = 0.05
+    capital: float = 1000.0
+    trail_trigger_atr: float = 2.0
+    trail_atr_mult: float = 1.2
+    spread_atr_max: float = 0.10
     reverse_exit: bool = False
-    market_state_window: int = 40
-    sl_atr: float = 1.5
-    tp_atr: float = 2.5
+    market_state_window: int = 50
+    sl_atr: float = 2.0
+    tp_atr: float = 3.5
     contract_size: float = 100.0
     sl_pips: Optional[float] = None
     tp_pips: Optional[float] = None
     pip_size: float = 0.01
     momentum_type: str = "hybrid"
     momentum_window: int = 14
-    momentum_threshold: float = 0.07
+    momentum_threshold: float = 0.08
     macd_fast: int = 12
     macd_slow: int = 26
     macd_signal: int = 9
-    macd_threshold: float = 0.0002
-    range_lookback: int = 40
-    range_min_atr: float = 0.8
-    range_min_points: float = 1.0
-    breakout_buffer_atr: float = 0.3
-    breakout_confirmation_bars: int = 1
+    macd_threshold: float = 0.0004
+    range_lookback: int = 50
+    range_min_atr: float = 0.9
+    range_min_points: float = 0.0
+    breakout_buffer_atr: float = 0.5
+    breakout_confirmation_bars: int = 3
     atr_baseline_window: int = 14
-    atr_multiplier_min: float = 1.1
-    atr_multiplier_max: float = 3.2
-    trading_hours: Optional[str] = None
+    atr_multiplier_min: float = 1.0
+    atr_multiplier_max: float = 3.5
+    trading_hours: Optional[str] = "14:00-04:00"
     adx_window: int = 14
     adx_threshold: float = 25.0
-    rsi_threshold_long: float = 60.0
-    rsi_threshold_short: float = 40.0
-    max_daily_loss: Optional[float] = None
-    max_loss_streak: Optional[int] = None
-    max_losses_per_session: Optional[int] = None
-    cooldown_minutes: Optional[int] = None
+    rsi_threshold_long: float = 65.0
+    rsi_threshold_short: float = 35.0
+    max_daily_loss: Optional[float] = 0.015
+    max_loss_streak: Optional[int] = 2
+    max_losses_per_session: Optional[int] = 2
+    cooldown_minutes: Optional[int] = 90
     allow_buy: bool = True
     allow_sell: bool = True
     max_holding_minutes: Optional[int] = None
-    order_retry_times: int = 0
-    order_retry_delay_ms: int = 0
+    order_retry_times: int = 3
+    order_retry_delay_ms: int = 500
     # Safety/entry controls
-    safety_entry_atr_mult: float = 0.1
-    spread_samples: int = 5
-    spread_sample_delay_ms: int = 8
-    allowed_deviation_points: int = 300
-    volatility_spike_atr_mult: float = 0.8
-    spike_delay_ms: int = 50
+    safety_entry_atr_mult: float = 1.2
+    spread_samples: int = 10
+    spread_sample_delay_ms: int = 100
+    allowed_deviation_points: int = 30
+    volatility_spike_atr_mult: float = 1.5
+    spike_delay_ms: int = 2000
     skip_reset_window: bool = True
-    latency_min_ms: int = 200
-    latency_max_ms: int = 400
-    slippage_usd: float = 0.05
-    order_reject_prob: float = 0.03
-    base_spread_points: int = 50
-    spread_spike_chance: float = 0.02
-    spread_spike_min_points: int = 80
-    spread_spike_max_points: int = 300
+    latency_min_ms: int = 50
+    latency_max_ms: int = 200
+    slippage_usd: float = 2.0
+    order_reject_prob: float = 0.05
+    base_spread_points: int = 20
+    spread_spike_chance: float = 0.15
+    spread_spike_min_points: int = 30
+    spread_spike_max_points: int = 50
     slip_per_atr_ratio: float = 0.2
-    requote_prob: float = 0.01
-    offquotes_prob: float = 0.005
-    timeout_prob: float = 0.005
-    stop_hunt_chance: float = 0.015
-    stop_hunt_min_atr_ratio: float = 0.2
-    stop_hunt_max_atr_ratio: float = 1.0
-    missing_tick_chance: float = 0.005
-    min_volume_multiplier: float = 1.1
+    requote_prob: float = 0.1
+    offquotes_prob: float = 0.08
+    timeout_prob: float = 0.03
+    stop_hunt_chance: float = 0.2
+    stop_hunt_min_atr_ratio: float = 1.0
+    stop_hunt_max_atr_ratio: float = 2.0
+    missing_tick_chance: float = 0.02
+    min_volume_multiplier: float = 1.2
     slippage_pips: Optional[float] = 3.0
 
 
@@ -652,7 +653,13 @@ def _build_backtest_dashboard(trades: list[dict[str, Any]]) -> dict:
     }
 
 
-DASHBOARD_HTML = """
+def _inject_default_symbol(template: str) -> str:
+    """Safely inject the default symbol into HTML/JS snippets."""
+    safe_symbol = json.dumps(settings.quote_symbol)[1:-1]
+    return template.replace("__DEFAULT_SYMBOL__", safe_symbol)
+
+
+DASHBOARD_HTML = _inject_default_symbol("""
 <!doctype html>
 <html lang=\"vi\">
   <head>
@@ -705,7 +712,9 @@ DASHBOARD_HTML = """
     </p>
     <p class="note tz-note">Múi giờ hiển thị &amp; nhập liệu: <strong data-tz-label="text">Local time</strong></p>
     <section>
-      <h2 style=\"margin-top:0\">Cấu hình breakout</h2>
+      <div style=\"display:flex; align-items:center; gap:0.6rem;\">
+        <h2 style=\"margin-top:0; margin-bottom:0;\">Cấu hình breakout</h2>
+      </div>
       <p class=\"note\" style=\"margin-bottom:0.5rem;\">Điền trực tiếp tham số hoặc nạp config đã lưu.</p>
       <form id=\"start-form\">
         <div class=\"flex\">
@@ -715,7 +724,7 @@ DASHBOARD_HTML = """
           </div>
           <div>
             <label>Symbol</label>
-            <input name=\"symbol\" placeholder=\"XAUUSD\" value=\"__DEFAULT_SYMBOL__\" />
+            <input name=\"symbol\" placeholder=\"XAUUSD\" />
           </div>
         </div>
         <div class=\"flex\" style=\"margin-top:1rem;\">
@@ -732,13 +741,13 @@ DASHBOARD_HTML = """
           <div class="flex">
             <div>
               <label>Fast / Slow EMA</label>
-              <input name="fast" type="number" value="8" />
-              <input name="slow" type="number" value="21" />
+              <input name="fast" type="number" />
+              <input name="slow" type="number" />
             </div>
             <div>
               <label>Side</label>
               <select name="side_mode">
-                <option value="both" selected>Buy &amp; Sell</option>
+                <option value="both">Buy &amp; Sell</option>
                 <option value="buy">Chỉ BUY</option>
                 <option value="sell">Chỉ SELL</option>
               </select>
@@ -746,21 +755,21 @@ DASHBOARD_HTML = """
             <div>
               <label>MA type</label>
               <select name="ma_type">
-                <option value="ema" selected>EMA</option>
+                <option value="ema">EMA</option>
                 <option value="sma">SMA</option>
               </select>
             </div>
             <div>
               <label>Timeframe</label>
-              <input name="timeframe" value="5min" />
+              <input name="timeframe" />
             </div>
             <div>
               <label>Capital</label>
-              <input name="capital" type="number" value="100" />
+              <input name="capital" type="number" />
             </div>
             <div>
               <label>Risk % (fraction)</label>
-              <input name="risk_pct" type="number" step="0.001" value="0.02" />
+              <input name="risk_pct" type="number" step="0.001" />
             </div>
           </div>
         </section>
@@ -770,23 +779,23 @@ DASHBOARD_HTML = """
           <div class="flex">
             <div>
               <label>EMA trend (chu kỳ)</label>
-              <input name="trend" type="number" value="200" />
+              <input name="trend" type="number" />
             </div>
             <div>
               <label>Market state window</label>
-              <input name="market_state_window" type="number" value="40" />
+              <input name="market_state_window" type="number" />
             </div>
             <div>
               <label>Trading hours</label>
-              <input name="trading_hours" placeholder="14:00-16:00,20:00-23:00" />
+              <input name="trading_hours" placeholder="vd: 14:00-04:00" />
             </div>
             <div>
               <label>ADX window</label>
-              <input name="adx_window" type="number" value="14" />
+              <input name="adx_window" type="number" />
             </div>
             <div>
               <label>ADX threshold</label>
-              <input name="adx_threshold" type="number" step="0.1" value="25" />
+              <input name="adx_threshold" type="number" step="0.1" />
             </div>
           </div>
         </section>
@@ -796,27 +805,27 @@ DASHBOARD_HTML = """
           <div class="flex">
             <div>
               <label>ATR baseline window</label>
-              <input name="atr_baseline_window" type="number" value="14" />
+              <input name="atr_baseline_window" type="number" />
             </div>
             <div>
               <label>ATR multiplier min</label>
-              <input name="atr_multiplier_min" type="number" step="0.01" value="1.1" />
+              <input name="atr_multiplier_min" type="number" step="0.01" />
             </div>
             <div>
               <label>ATR multiplier max</label>
-              <input name="atr_multiplier_max" type="number" step="0.01" value="3.2" />
+              <input name="atr_multiplier_max" type="number" step="0.01" />
             </div>
             <div>
               <label>Spread ATR max</label>
-              <input name="spread_atr_max" type="number" step="0.01" value="0.08" />
+              <input name="spread_atr_max" type="number" step="0.01" />
             </div>
             <div>
               <label>Ensure history (hours)</label>
-              <input name="ensure_history_hours" type="number" value="6" />
+              <input name="ensure_history_hours" type="number" />
             </div>
             <div>
               <label>Poll (s)</label>
-              <input name="poll" type="number" step="0.1" value="1.0" />
+              <input name="poll" type="number" step="0.1" />
             </div>
           </div>
         </section>
@@ -826,23 +835,23 @@ DASHBOARD_HTML = """
           <div class="flex">
             <div>
               <label>Range lookback (bars)</label>
-              <input name="range_lookback" type="number" value="40" />
+              <input name="range_lookback" type="number" />
             </div>
             <div>
               <label>Range min ATR (x)</label>
-              <input name="range_min_atr" type="number" step="0.1" value="0.8" />
+              <input name="range_min_atr" type="number" step="0.1" />
             </div>
             <div>
               <label>Range min points (USD)</label>
-              <input name="range_min_points" type="number" step="0.1" value="1.0" />
+              <input name="range_min_points" type="number" step="0.1" />
             </div>
             <div>
               <label>Breakout buffer (ATR)</label>
-              <input name="breakout_buffer_atr" type="number" step="0.01" value="0.3" />
+              <input name="breakout_buffer_atr" type="number" step="0.01" />
             </div>
             <div>
               <label>Confirm bars</label>
-              <input name="breakout_confirmation_bars" type="number" value="1" />
+              <input name="breakout_confirmation_bars" type="number" />
             </div>
           </div>
         </section>
@@ -853,33 +862,33 @@ DASHBOARD_HTML = """
             <div>
               <label>Momentum type</label>
               <select name="momentum_type">
-                <option value="hybrid" selected>Hybrid RSI + MACD</option>
+                <option value="hybrid">Hybrid RSI + MACD</option>
                 <option value="macd">MACD</option>
                 <option value="pct">% Change</option>
               </select>
             </div>
             <div>
               <label>Momentum window</label>
-              <input name="momentum_window" type="number" value="14" />
+              <input name="momentum_window" type="number" />
             </div>
             <div>
               <label>Momentum threshold (%)</label>
-              <input name="momentum_threshold" type="number" step="any" value="0.07" />
+              <input name="momentum_threshold" type="number" step="any" />
             </div>
             <div>
               <label>MACD fast / slow / signal</label>
-              <input name="macd_fast" type="number" value="12" />
-              <input name="macd_slow" type="number" value="26" />
-              <input name="macd_signal" type="number" value="9" />
+              <input name="macd_fast" type="number" />
+              <input name="macd_slow" type="number" />
+              <input name="macd_signal" type="number" />
             </div>
             <div>
               <label>MACD threshold</label>
-              <input name="macd_threshold" type="number" step="any" value="0.0002" />
+              <input name="macd_threshold" type="number" step="any" />
             </div>
             <div>
               <label>RSI long / short</label>
-              <input name="rsi_threshold_long" type="number" step="any" value="60" />
-              <input name="rsi_threshold_short" type="number" step="any" value="40" />
+              <input name="rsi_threshold_long" type="number" step="any" />
+              <input name="rsi_threshold_short" type="number" step="any" />
             </div>
           </div>
         </section>
@@ -889,50 +898,50 @@ DASHBOARD_HTML = """
           <div class="flex" style="align-items:flex-start;">
             <div>
               <label>SL ATR</label>
-              <input name="sl_atr" type="number" step="any" value="1.5" />
+              <input name="sl_atr" type="number" step="any" />
             </div>
             <div>
               <label>TP ATR</label>
-              <input name="tp_atr" type="number" step="any" value="2.5" />
+              <input name="tp_atr" type="number" step="any" />
             </div>
             <div>
               <label>Trail trigger ATR</label>
-              <input name="trail_trigger_atr" type="number" step="any" value="1.8" />
+              <input name="trail_trigger_atr" type="number" step="any" />
             </div>
             <div>
               <label>Trail ATR multiplier</label>
-              <input name="trail_atr_mult" type="number" step="any" value="1.1" />
+              <input name="trail_atr_mult" type="number" step="any" />
             </div>
             <div style="flex:1 1 260px;">
               <label>Exit mode khi tín hiệu ngược</label>
               <select name="reverse_exit_mode">
-                <option value="off" selected>Giữ lệnh (chờ SL/TP)</option>
+                <option value="off">Giữ lệnh (chờ SL/TP)</option>
                 <option value="close">Đóng lệnh khi có tín hiệu ngược</option>
               </select>
             </div>
             <div>
               <label>Retry đặt lệnh (số lần)</label>
-              <input name="order_retry_times" type="number" min="0" value="0" />
+              <input name="order_retry_times" type="number" min="0" />
             </div>
             <div>
               <label>Delay giữa các lần retry (ms)</label>
-              <input name="order_retry_delay_ms" type="number" min="0" value="0" />
+              <input name="order_retry_delay_ms" type="number" min="0" />
             </div>
             <div>
               <label>Min volume multiplier</label>
-              <input name="min_volume_multiplier" type="number" step="0.1" value="1.1" />
+              <input name="min_volume_multiplier" type="number" step="0.1" />
             </div>
             <div>
               <label>Slippage (pips)</label>
-              <input name="slippage_pips" type="number" step="any" value="3" />
+              <input name="slippage_pips" type="number" step="any" />
             </div>
             <div>
               <label>Contract size</label>
-              <input name="contract_size" type="number" value="100" />
+              <input name="contract_size" type="number" />
             </div>
             <div>
               <label>Pip size</label>
-              <input name="pip_size" type="number" step="any" value="0.01" />
+              <input name="pip_size" type="number" step="any" />
             </div>
             <div>
               <label>SL (pips)</label>
@@ -950,19 +959,19 @@ DASHBOARD_HTML = """
           <div class="flex">
             <div>
               <label>Max daily loss (USD)</label>
-              <input name="max_daily_loss" type="number" step="any" value="30" />
+              <input name="max_daily_loss" type="number" step="any" />
             </div>
             <div>
               <label>Max loss streak</label>
-              <input name="max_loss_streak" type="number" min="0" value="3" />
+              <input name="max_loss_streak" type="number" min="0" />
             </div>
             <div>
               <label>Max losses / session</label>
-              <input name="max_losses_per_session" type="number" min="0" value="2" />
+              <input name="max_losses_per_session" type="number" min="0" />
             </div>
             <div>
               <label>Cooldown (phút)</label>
-              <input name="cooldown_minutes" type="number" min="0" value="60" />
+              <input name="cooldown_minutes" type="number" min="0" />
             </div>
             <div>
               <label>Max holding time (phút)</label>
@@ -1014,11 +1023,11 @@ DASHBOARD_HTML = """
             </div>
             <div>
               <label>Batch size</label>
-              <input name="history_batch" type="number" value="2000" />
+              <input name="history_batch" type="number" />
             </div>
             <div>
               <label>Max days</label>
-              <input name="history_max_days" type="number" value="5" />
+              <input name="history_max_days" type="number" />
             </div>
           </div>
           <div class="flex">
@@ -1074,6 +1083,10 @@ DASHBOARD_HTML = """
           <h3>Chi tiết vị thế</h3>
           <div class=\"event-list\" id=\"position-detail\">-</div>
         </div>
+        <div style=\"flex:1 1 100%;\">
+          <h3>Log tính toán (bước mới nhất)</h3>
+          <pre class=\"event-list\" id=\"calc-steps\" style=\"min-height:160px; white-space:pre-wrap; font-family:monospace;\">-</pre>
+        </div>
       </div>
     </section>
 
@@ -1092,6 +1105,7 @@ DASHBOARD_HTML = """
       const messageEl = document.getElementById('message');
       const signalBlock = document.getElementById('signal-block');
       const positionDetail = document.getElementById('position-detail');
+      const calcSteps = document.getElementById('calc-steps');
       const summaryBox = document.getElementById('strategy-summary');
       const backtestBtn = document.getElementById('backtest-btn');
       const backtestStopBtn = document.getElementById('backtest-stop-btn');
@@ -1126,6 +1140,91 @@ DASHBOARD_HTML = """
       document.querySelectorAll('[data-tz-label="suffix"]').forEach((el) => {
         el.textContent = timezoneSuffix || '';
       });
+
+      const defaultValues = {};
+      const intFields = new Set([
+        'fast',
+        'slow',
+        'trend',
+        'market_state_window',
+        'history_batch',
+        'history_max_days',
+        'momentum_window',
+        'macd_fast',
+        'macd_slow',
+        'macd_signal',
+        'range_lookback',
+        'breakout_confirmation_bars',
+        'atr_baseline_window',
+        'adx_window',
+        'max_loss_streak',
+        'max_losses_per_session',
+        'cooldown_minutes',
+        'order_retry_times',
+        'spread_samples',
+        'spread_sample_delay_ms',
+        'allowed_deviation_points',
+        'spike_delay_ms',
+        'latency_min_ms',
+        'latency_max_ms',
+        'base_spread_points',
+        'spread_spike_min_points',
+        'spread_spike_max_points',
+      ]);
+      const floatFields = new Set([
+        'capital',
+        'risk_pct',
+        'spread_atr_max',
+        'sl_atr',
+        'tp_atr',
+        'trail_trigger_atr',
+        'trail_atr_mult',
+        'poll',
+        'ensure_history_hours',
+        'pip_size',
+        'contract_size',
+        'momentum_threshold',
+        'macd_threshold',
+        'rsi_threshold_long',
+        'rsi_threshold_short',
+        'max_holding_minutes',
+        'range_min_atr',
+        'range_min_points',
+        'breakout_buffer_atr',
+        'atr_multiplier_min',
+        'atr_multiplier_max',
+        'max_daily_loss',
+        'adx_threshold',
+        'order_retry_delay_ms',
+        'min_volume_multiplier',
+        'slippage_pips',
+        'safety_entry_atr_mult',
+        'volatility_spike_atr_mult',
+        'slippage_usd',
+        'order_reject_prob',
+        'spread_spike_chance',
+        'slip_per_atr_ratio',
+        'requote_prob',
+        'offquotes_prob',
+        'timeout_prob',
+        'stop_hunt_chance',
+        'stop_hunt_min_atr_ratio',
+        'stop_hunt_max_atr_ratio',
+        'missing_tick_chance',
+      ]);
+      const textFields = new Set([
+        'db_url',
+        'symbol',
+        'ma_type',
+        'timeframe',
+        'trading_hours',
+        'momentum_type',
+        'reverse_exit_mode',
+        'backtest_start',
+        'backtest_end',
+        'history_start',
+        'history_end',
+      ]);
 
       const fieldHelp = {
         db_url: 'Chuỗi kết nối CSDL async (Postgres/SQLite). Ví dụ: postgresql+asyncpg://user:pass@host/db',
@@ -1182,9 +1281,36 @@ DASHBOARD_HTML = """
         history_max_days: 'Số ngày tối đa cho mỗi lần gọi MT5 copy_ticks_range',
       };
 
+      // Gán placeholder/ghi chú mặc định cho các trường
+      Object.entries(defaultValues).forEach(([key, value]) => {
+        const input = form.querySelector(`[name=\"${key}\"]`);
+        if (!input) return;
+        if (key === 'db_url' && typeof localStorage !== 'undefined') {
+          const savedDb = localStorage.getItem('db_url');
+          if (savedDb) {
+            input.value = savedDb;
+          }
+        }
+        if (!input.value) input.value = (value !== undefined && value !== null) ? value : '';
+        if (!input.placeholder && value !== undefined && value !== null && value !== '') {
+          input.placeholder = `vd: ${value}`;
+        }
+        const wrap = input.closest('div');
+        const label = wrap ? wrap.querySelector('label') : null;
+        if (label && !label.dataset.hasDefault) {
+          label.textContent = `${label.textContent || key} (vd: ${value})`;
+          label.dataset.hasDefault = '1';
+        }
+      });
+
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const payload = buildPayload(new FormData(form));
+        if (!payload.db_url) {
+          payload.db_url = (typeof localStorage !== 'undefined' && localStorage.getItem('db_url')) || defaultValues.db_url;
+        } else if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('db_url', payload.db_url);
+        }
         try {
           const res = await fetch('/api/live/start', {
             method: 'POST',
@@ -1256,7 +1382,10 @@ DASHBOARD_HTML = """
         });
       }
       if (bulkConfigApplyBtn) {
-        bulkConfigApplyBtn.addEventListener('click', () => applyBulkConfig(bulkConfigInput?.value || ''));
+        bulkConfigApplyBtn.addEventListener('click', () => {
+          applyBulkConfig((bulkConfigInput && bulkConfigInput.value) || '');
+          applyDefaultsToEmptyInputs();
+        });
       }
 
       function buildPayload(formData) {
@@ -1265,81 +1394,9 @@ DASHBOARD_HTML = """
           if (raw === '' && key !== 'symbol') continue;
           const rawTrim = typeof raw === 'string' ? raw.trim() : raw;
           const numericVal = typeof raw === 'string' ? raw.replace(',', '.').trim() : raw;
-          if (
-            [
-              'fast',
-              'slow',
-              'trend',
-              'market_state_window',
-              'history_batch',
-              'history_max_days',
-              'momentum_window',
-              'macd_fast',
-              'macd_slow',
-              'macd_signal',
-              'range_lookback',
-              'breakout_confirmation_bars',
-              'atr_baseline_window',
-              'adx_window',
-              'max_loss_streak',
-              'max_losses_per_session',
-              'cooldown_minutes',
-              'order_retry_times',
-              'spread_samples',
-              'spread_sample_delay_ms',
-              'allowed_deviation_points',
-              'spike_delay_ms',
-              'latency_min_ms',
-              'latency_max_ms',
-              'base_spread_points',
-              'spread_spike_min_points',
-              'spread_spike_max_points',
-            ].includes(key)
-          ) {
+          if (intFields.has(key)) {
             payload[key] = parseInt(numericVal, 10);
-          } else if (
-            [
-              'capital',
-              'risk_pct',
-              'spread_atr_max',
-              'sl_atr',
-              'tp_atr',
-              'trail_trigger_atr',
-              'trail_atr_mult',
-              'poll',
-              'ensure_history_hours',
-              'pip_size',
-              'contract_size',
-              'momentum_threshold',
-              'macd_threshold',
-              'rsi_threshold_long',
-              'rsi_threshold_short',
-              'max_holding_minutes',
-              'range_min_atr',
-              'range_min_points',
-              'breakout_buffer_atr',
-              'atr_multiplier_min',
-              'atr_multiplier_max',
-              'max_daily_loss',
-              'adx_threshold',
-              'order_retry_delay_ms',
-              'min_volume_multiplier',
-              'slippage_pips',
-              'safety_entry_atr_mult',
-              'volatility_spike_atr_mult',
-              'slippage_usd',
-              'order_reject_prob',
-              'spread_spike_chance',
-              'slip_per_atr_ratio',
-              'requote_prob',
-              'offquotes_prob',
-              'timeout_prob',
-              'stop_hunt_chance',
-              'stop_hunt_min_atr_ratio',
-              'stop_hunt_max_atr_ratio',
-              'missing_tick_chance',
-            ].includes(key)
-          ) {
+          } else if (floatFields.has(key)) {
             payload[key] = parseFloat(numericVal);
           } else {
             payload[key] = rawTrim;
@@ -1355,7 +1412,7 @@ DASHBOARD_HTML = """
             payload.reverse_exit = payload.reverse_exit_mode === 'close';
             delete payload.reverse_exit_mode;
         }
-        const sideMode = form.side_mode?.value || 'both';
+        const sideMode = (form.side_mode && form.side_mode.value) || 'both';
         if (sideMode === 'buy') {
           payload.allow_buy = true;
           payload.allow_sell = false;
@@ -1367,6 +1424,7 @@ DASHBOARD_HTML = """
           payload.allow_sell = true;
         }
         delete payload.side_mode;
+        normalizeMissingFields(payload);
         return payload;
       }
 
@@ -1388,22 +1446,31 @@ DASHBOARD_HTML = """
         payload.start = normalizeDateInput(start);
         payload.end = normalizeDateInput(end);
         payload.db_url = form.db_url.value.trim();
-        payload.symbol = form.symbol.value || 'XAUUSD';
+        payload.symbol = form.symbol.value;
         return payload;
       }
 
-      function applySuggestionToForm(suggestion = {}) {
+function applySuggestionToForm(suggestion = {}) {
         Object.entries(suggestion).forEach(([key, value]) => {
           const control = form.elements[key];
           if (!control) return;
           if (typeof RadioNodeList !== 'undefined' && control instanceof RadioNodeList) {
-            control.value = value ?? '';
+            control.value = value !== undefined && value !== null ? value : '';
             return;
           }
           if (control.type === 'checkbox') {
             control.checked = Boolean(value);
           } else {
-            control.value = value ?? '';
+            const isNumberInput = control.type === 'number';
+            if (value === undefined || value === null || value === '') {
+              if (intFields.has(key) || floatFields.has(key) || isNumberInput) {
+                control.value = '0';
+              } else {
+                control.value = '';
+              }
+            } else {
+              control.value = value;
+            }
           }
         });
         if (form.reverse_exit_mode) {
@@ -1420,6 +1487,7 @@ DASHBOARD_HTML = """
           }
           form.side_mode.value = sideVal;
         }
+        applyDefaultsToEmptyInputs();
       }
 
       
@@ -1518,7 +1586,7 @@ DASHBOARD_HTML = """
 
       async function loadSelectedConfig() {
         const dbUrl = form.db_url.value.trim();
-        const selectedId = savedConfigSelect?.value;
+        const selectedId = savedConfigSelect ? savedConfigSelect.value : undefined;
         if (!dbUrl) {
           alert('Vui lòng nhập DB URL trước khi nạp config.');
           return;
@@ -1538,14 +1606,9 @@ DASHBOARD_HTML = """
             backtestResult.textContent = 'Không tìm thấy cấu hình.';
             return;
           }
-          applySuggestionToForm(data.config);
-          // Đảm bảo các trường risk guard được nạp đầy đủ (kể cả giá trị 0)
-          const riskFields = ['max_daily_loss', 'max_loss_streak', 'max_losses_per_session', 'cooldown_minutes', 'max_holding_minutes'];
-          riskFields.forEach((key) => {
-            if (Object.prototype.hasOwnProperty.call(data.config, key) && form.elements[key]) {
-              form.elements[key].value = data.config[key] ?? '';
-            }
-          });
+          const normalizedCfg = { ...data.config };
+          normalizeMissingFields(normalizedCfg);
+          applySuggestionToForm(normalizedCfg);
           backtestResult.textContent = `Đã nạp config #${data.id}`;
         } catch (err) {
           backtestResult.textContent = err.message || 'Không thể nạp config';
@@ -1585,7 +1648,7 @@ DASHBOARD_HTML = """
         }
         const payload = {
           db_url: dbUrl,
-          symbol: form.symbol.value || 'XAUUSD',
+          symbol: form.symbol.value,
           start: normalizeDateInput(start),
           end: normalizeDateInput(end),
           batch,
@@ -1655,12 +1718,12 @@ DASHBOARD_HTML = """
         const riskPctDisplay =
           typeof cfg.risk_pct === 'number'
             ? `${(cfg.risk_pct * 100).toFixed(2)}%`
-            : cfg.risk_pct ?? '-';
+            : (cfg.risk_pct !== undefined && cfg.risk_pct !== null ? cfg.risk_pct : '-');
         const items = [
-          `MA: ${cfg.fast_ma}/${cfg.slow_ma} (${cfg.ma_type?.toUpperCase()})`,
+          `MA: ${cfg.fast_ma}/${cfg.slow_ma} (${cfg.ma_type ? cfg.ma_type.toUpperCase() : ''})`,
           `Timeframe: ${cfg.timeframe}`,
           `Trend EMA: ${cfg.trend_ma || '-'} | ADX ≥ ${cfg.adx_threshold || 0}`,
-          `Momentum: ${cfg.momentum_type?.toUpperCase()} (MACD ${cfg.macd_fast || '-'} / ${cfg.macd_slow || '-'} / ${cfg.macd_signal || '-'}, RSI ${cfg.rsi_threshold_long ?? '-'} / ${cfg.rsi_threshold_short ?? '-'})`,
+          `Momentum: ${cfg.momentum_type ? cfg.momentum_type.toUpperCase() : ''} (MACD ${cfg.macd_fast || '-'} / ${cfg.macd_slow || '-'} / ${cfg.macd_signal || '-'}, RSI ${cfg.rsi_threshold_long !== undefined && cfg.rsi_threshold_long !== null ? cfg.rsi_threshold_long : '-'} / ${cfg.rsi_threshold_short !== undefined && cfg.rsi_threshold_short !== null ? cfg.rsi_threshold_short : '-'})`,
           `Breakout: lookback ${cfg.range_lookback || '-'} | buffer ATR ${cfg.breakout_buffer_atr || '-'}`,
           `ATR filter: baseline ${cfg.atr_baseline_window || '-'} | min ${cfg.atr_multiplier_min || '-'} | max ${cfg.atr_multiplier_max || '-'}`,
           cfg.trading_hours
@@ -1672,7 +1735,7 @@ DASHBOARD_HTML = """
           `ATR SL/TP: ${cfg.sl_atr || '-'} / ${cfg.tp_atr || '-'}`,
           `Trailing: trigger ${cfg.trail_trigger_atr || '-'} ATR | mult ${cfg.trail_atr_mult || '-'}`,
           cfg.max_daily_loss
-            ? `Risk guard: daily ${cfg.max_daily_loss} | streak ${cfg.max_consecutive_losses ?? '-'} | session ${cfg.max_losses_per_session ?? '-'}`.trim()
+            ? `Risk guard: daily ${cfg.max_daily_loss} | streak ${(cfg.max_consecutive_losses !== undefined && cfg.max_consecutive_losses !== null) ? cfg.max_consecutive_losses : '-'} | session ${(cfg.max_losses_per_session !== undefined && cfg.max_losses_per_session !== null) ? cfg.max_losses_per_session : '-'}`.trim()
             : '',
           `Spread ATR max: ${cfg.spread_atr_max || '-'}`,
           cliCmd ? `CLI: <code>${cliCmd}</code>` : '',
@@ -1688,7 +1751,7 @@ DASHBOARD_HTML = """
           `Số lệnh: ${data.total_trades} | Thắng: ${data.wins} | Thua: ${data.losses}`,
           `PnL (price units): ${formatNum(data.total_pnl, 6)} | Avg: ${formatNum(data.avg_pnl, 6)}`,
           `PnL (USD): ${formatNum(data.total_usd_pnl, 2)} | Avg: ${formatNum(data.avg_usd_pnl, 2)}`,
-          data.db_run_id ? `Đã lưu ${data.stored_trades ?? data.total_trades} lệnh vào DB (run_id = ${data.db_run_id})` : '',
+          data.db_run_id ? `Đã lưu ${(data.stored_trades !== undefined && data.stored_trades !== null ? data.stored_trades : data.total_trades)} lệnh vào DB (run_id = ${data.db_run_id})` : '',
           data.saved_config_id ? `Đã lưu cấu hình backtest (ID ${data.saved_config_id})` : '',
           data.save_error ? `Lưu cấu hình lỗi: ${data.save_error}` : '',
           data.cli_command ? `CLI: <code>${data.cli_command}</code>` : '',
@@ -1762,14 +1825,70 @@ DASHBOARD_HTML = """
         return Number.isFinite(num) ? num.toFixed(digits) : '-';
       }
 
+      function normalizeMissingFields(payload) {
+        intFields.forEach((key) => {
+          if (!Object.prototype.hasOwnProperty.call(payload, key) || payload[key] === '' || payload[key] === null || Number.isNaN(payload[key])) {
+            payload[key] = 0;
+          }
+        });
+        floatFields.forEach((key) => {
+          if (!Object.prototype.hasOwnProperty.call(payload, key) || payload[key] === '' || payload[key] === null || Number.isNaN(payload[key])) {
+            payload[key] = 0;
+          }
+        });
+        textFields.forEach((key) => {
+          if (!Object.prototype.hasOwnProperty.call(payload, key) || payload[key] === '') {
+            payload[key] = null;
+          }
+        });
+        // Điền 0 cho tất cả input type=number chưa có hoặc trống
+        Array.from(form.elements).forEach((el) => {
+          if (!(el instanceof HTMLElement)) return;
+          if (el.type !== 'number') return;
+          const name = el.name;
+          if (!name) return;
+          if (!Object.prototype.hasOwnProperty.call(payload, name) || payload[name] === '' || payload[name] === null || Number.isNaN(payload[name])) {
+            payload[name] = 0;
+          }
+        });
+        // Các input text khác (không phải number/checkbox/radio) sẽ về null nếu trống
+        Array.from(form.elements).forEach((el) => {
+          if (!(el instanceof HTMLElement)) return;
+          if (el.type === 'number' || el.type === 'checkbox' || el.type === 'radio') return;
+          const name = el.name;
+          if (!name) return;
+          if (!Object.prototype.hasOwnProperty.call(payload, name) || payload[name] === '') {
+            payload[name] = null;
+          }
+        });
+      }
+
+      function applyDefaultsToEmptyInputs() {
+        const controls = form.querySelectorAll('input, select, textarea');
+        controls.forEach((el) => {
+          if (el.type === 'checkbox' || el.type === 'radio') return;
+          const name = el.name;
+          if (!name) return;
+          const isEmpty = el.value === undefined || el.value === null || el.value === '';
+          if (isEmpty) {
+            if (intFields.has(name) || floatFields.has(name)) {
+              el.value = '0';
+            } else {
+              el.value = '';
+            }
+          }
+        });
+      }
       function openBulkConfigModal() {
         if (!bulkConfigModal) return;
         bulkConfigModal.classList.add('show');
-        setTimeout(() => bulkConfigInput?.focus(), 50);
+        setTimeout(() => {
+          if (bulkConfigInput) bulkConfigInput.focus();
+        }, 50);
       }
 
       function closeBulkConfigModal() {
-        bulkConfigModal?.classList.remove('show');
+        if (bulkConfigModal) bulkConfigModal.classList.remove('show');
       }
 
       function subtractTradingDays(endDate, tradingDays) {
@@ -1788,7 +1907,7 @@ DASHBOARD_HTML = """
         return cursor;
       }
 
-      function applyBulkConfig(rawText) {
+function applyBulkConfig(rawText) {
         const content = (rawText || '').trim();
         if (!content) {
           setBulkConfigStatus('Vui lòng dán danh sách tham số theo định dạng key = value', 'error');
@@ -1796,6 +1915,7 @@ DASHBOARD_HTML = """
         }
         try {
           const parsed = parseBulkConfigText(content);
+          normalizeMissingFields(parsed);
           const keys = Object.keys(parsed);
           if (!keys.length) {
             throw new Error('Không tìm thấy tham số hợp lệ trong nội dung đã dán');
@@ -1853,12 +1973,14 @@ DASHBOARD_HTML = """
       }
 
       function coerceBulkValue(key, value, listFields) {
-        if (value === null || value === undefined) return '';
+        if (value === null || value === undefined || String(value).trim() === '') {
+          if (intFields.has(key) || floatFields.has(key)) return 0;
+          return null;
+        }
         if (typeof value === 'number' || typeof value === 'boolean') {
           return value;
         }
         let text = String(value).trim();
-        if (!text) return '';
         const lower = text.toLowerCase();
         if (['true', 'yes', 'on', '1'].includes(lower)) return true;
         if (['false', 'no', 'off', '0'].includes(lower)) return false;
@@ -1889,7 +2011,7 @@ DASHBOARD_HTML = """
         if (!signal) return '-';
         const type = signal.type || '';
         if (type === 'position_open') {
-          return `OPEN ${String(signal.side || '').toUpperCase()} @ ${formatNum(signal.price)} vol ${signal.volume ?? '-'}`;
+          return `OPEN ${String(signal.side || '').toUpperCase()} @ ${formatNum(signal.price)} vol ${signal.volume !== undefined && signal.volume !== null ? signal.volume : '-'}`;
         }
         if (type === 'position_close') {
           return `CLOSE ${String(signal.side || '').toUpperCase()} pnl ${formatNum(signal.pnl_value, 2)}`;
@@ -1899,13 +2021,19 @@ DASHBOARD_HTML = """
         return JSON.stringify(signal);
       }
 
+      function formatSteps(events) {
+        if (!events || !events.length) return '-';
+        const evt = events[0];
+        return JSON.stringify(evt, null, 2);
+      }
+
       async function refreshStatus() {
         try {
           const res = await fetch('/api/live/status');
           const data = await res.json();
           if (!res.ok) throw new Error(data.detail || 'Không lấy được trạng thái live');
           if (stRunning) stRunning.textContent = data.running ? 'Đang chạy' : 'Đã dừng';
-          if (stSymbol) stSymbol.textContent = data.config?.symbol || '-';
+          if (stSymbol) stSymbol.textContent = (data.config && data.config.symbol) || '-';
           if (stQuote) stQuote.textContent = formatNum(data.last_quote, 3);
           if (stPnl) stPnl.textContent = formatNum(data.cumulative_pnl, 2);
           if (stWaiting) stWaiting.textContent = data.waiting_reason || '-';
@@ -1914,6 +2042,7 @@ DASHBOARD_HTML = """
           if (positionDetail) positionDetail.innerHTML = formatPositionDetail(pos);
           if (latestSignal) latestSignal.textContent = formatLatestSignal(data.last_signal);
           if (summaryBox) summaryBox.innerHTML = formatConfigSummary(data.config, data.cli_command);
+          if (calcSteps) calcSteps.innerHTML = formatSteps(data.recent_events);
         } catch (err) {
           if (stRunning) stRunning.textContent = '-';
           if (stSymbol) stSymbol.textContent = '-';
@@ -1923,6 +2052,7 @@ DASHBOARD_HTML = """
           if (stPosition) stPosition.textContent = '-';
           if (positionDetail) positionDetail.textContent = '-';
           if (latestSignal) latestSignal.textContent = '-';
+          if (calcSteps) calcSteps.textContent = '-';
         }
       }
 
@@ -1946,7 +2076,7 @@ DASHBOARD_HTML = """
     </script>
   </body>
 </html>
-""".replace("__DEFAULT_SYMBOL__", settings.quote_symbol)
+""")
 
 
 
@@ -1995,7 +2125,7 @@ BACKTEST_DASHBOARD_HTML = """
           </div>
           <div>
             <label>Symbol</label>
-            <input id="symbol" value="XAUUSD" />
+            <input id="symbol" />
           </div>
           <div>
             <label>Saved Config ID A (bắt buộc)</label>
@@ -2275,7 +2405,7 @@ BACKTEST_DASHBOARD_HTML = """
         const jobs = ['a','b'].map(async (key) => {
           const savedId = savedConfigEls[key].value ? Number(savedConfigEls[key].value) : null;
           if (!savedId) return { key, summary: `Bảng ${key.toUpperCase()}: chưa chọn Saved Config ID` };
-          const payload = { db_url: dbUrl, symbol: symbolEl.value.trim() || 'XAUUSD', saved_config_id: savedId, start, end };
+          const payload = { db_url: dbUrl, symbol: symbolEl.value.trim(), saved_config_id: savedId, start, end };
           const res = await fetch('/api/backtest/dashboard', {
             method:'POST',
             headers:{ 'Content-Type':'application/json' },
@@ -2293,8 +2423,8 @@ BACKTEST_DASHBOARD_HTML = """
         try {
           const results = await Promise.allSettled(jobs);
           const msgs = results.map(r => r.status === 'fulfilled'
-            ? (r.value?.summary || '')
-            : (r.reason?.message || 'Lỗi'));
+            ? (r.value && r.value.summary ? r.value.summary : '')
+            : (r.reason && r.reason.message ? r.reason.message : 'Lỗi'));
           setState(msgs.filter(Boolean).join(' || '), 'success');
         } catch (err) {
           setState(err.message || 'Lỗi tải dashboard', 'error');
@@ -2303,11 +2433,6 @@ BACKTEST_DASHBOARD_HTML = """
 
       document.getElementById('load-configs-btn').addEventListener('click', loadSavedConfigs);
       document.getElementById('load-btn').addEventListener('click', loadDashboard);
-      // auto set default start/end = 7 ngày gần nhất
-      const now = new Date();
-      const weekAgo = new Date(now.getTime() - 7*24*60*60*1000);
-      startEl.value = formatLocalInput(weekAgo);
-      endEl.value = formatLocalInput(now);
 </script>
   </body>
 </html>
@@ -2316,7 +2441,7 @@ BACKTEST_DASHBOARD_HTML = """
 
 
 
-BREAKOUT_DASHBOARD_HTML = """
+BREAKOUT_DASHBOARD_HTML = _inject_default_symbol("""
 <!doctype html>
 <html lang="vi">
   <head>
@@ -2385,11 +2510,11 @@ BREAKOUT_DASHBOARD_HTML = """
         <div class="grid">
           <div>
             <label>Symbol</label>
-            <input name="symbol" value="__DEFAULT_SYMBOL__" />
+            <input name="symbol" />
           </div>
           <div>
             <label>Timeframe chính</label>
-            <input name="timeframe" value="15min" />
+            <input name="timeframe" />
           </div>
           <div>
             <label>Hướng giao dịch</label>
@@ -2400,7 +2525,7 @@ BREAKOUT_DASHBOARD_HTML = """
           </div>
           <div>
             <label>Số nến quan sát (lookback)</label>
-            <input type="number" name="lookback" value="40" min="5" />
+            <input type="number" name="lookback" min="5" />
           </div>
         </div>
         <div class="grid" style="margin-top: 1rem;">
@@ -2414,43 +2539,43 @@ BREAKOUT_DASHBOARD_HTML = """
           </div>
           <div>
             <label>Biên đệm breakout (%)</label>
-            <input type="number" step="any" name="buffer_pct" value="0.15" />
+            <input type="number" step="any" name="buffer_pct" />
           </div>
           <div>
             <label>Xác nhận khối lượng (hệ số)</label>
-            <input type="number" step="any" name="volume_mult" value="1.5" />
+            <input type="number" step="any" name="volume_mult" />
           </div>
         </div>
         <div class="grid" style="margin-top: 1rem;">
           <div>
             <label>Số nến đóng cửa xác nhận</label>
-            <input type="number" name="confirmation" value="2" min="1" />
+            <input type="number" name="confirmation" min="1" />
           </div>
           <div>
             <label>Khoảng cách Stop (USD)</label>
-            <input type="number" step="any" name="stop_offset" value="1.5" />
+            <input type="number" step="any" name="stop_offset" />
           </div>
           <div>
             <label>Tỷ lệ RR mục tiêu</label>
-            <input type="number" step="any" name="rr" value="2.0" />
+            <input type="number" step="any" name="rr" />
           </div>
           <div>
             <label>Risk % / Trade</label>
-            <input type="number" step="any" name="risk_pct" value="0.02" />
+            <input type="number" step="any" name="risk_pct" />
           </div>
         </div>
         <div class="grid" style="margin-top: 1rem;">
           <div>
             <label>Capital (USD)</label>
-            <input type="number" name="capital" value="10000" />
+            <input type="number" name="capital" />
           </div>
           <div>
             <label>Contract size (oz/lot)</label>
-            <input type="number" name="contract" value="100" />
+            <input type="number" name="contract" />
           </div>
           <div>
             <label>Trailing kích hoạt (ATR)</label>
-            <input type="number" step="any" name="trail_atr" value="1.0" />
+            <input type="number" step="any" name="trail_atr" />
           </div>
           <div>
             <label>Ghi chú</label>
@@ -2541,7 +2666,7 @@ BREAKOUT_DASHBOARD_HTML = """
           }
         }
         const config = {
-          symbol: data.symbol || '__DEFAULT_SYMBOL__',
+          symbol: data.symbol,
           timeframe: data.timeframe || '15min',
           direction: data.direction,
           resistance: parseFloat(data.resistance),
@@ -2638,7 +2763,7 @@ BREAKOUT_DASHBOARD_HTML = """
     </script>
   </body>
 </html>
-""".replace("__DEFAULT_SYMBOL__", settings.quote_symbol)
+""")
 
 
 if __name__ == "__main__":

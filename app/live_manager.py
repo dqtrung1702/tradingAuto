@@ -35,85 +35,87 @@ class _RuntimeState:
 
 
 class LiveStartRequest(BaseModel):
-    db_url: Optional[str] = Field(default=None, description="Chuỗi kết nối DB async")
-    symbol: Optional[str] = None
-    fast: int = 21
-    slow: int = 89
+    db_url: Optional[str] = Field(
+        default="postgresql+asyncpg://trader:admin@localhost:5432/mt5", description="Chuỗi kết nối DB async"
+    )
+    symbol: Optional[str] = "XAUUSD"
+    fast: int = 9
+    slow: int = 21
     ma_type: str = "ema"
-    timeframe: str = "1min"
-    trend: int = 200
-    spread_atr_max: float = 0.2
+    timeframe: str = "5min"
+    trend: int = 50
+    spread_atr_max: float = 0.10
     reverse_exit: bool = False
-    market_state_window: int = 20
-    capital: float = 100.0
-    risk_pct: float = 0.02
+    market_state_window: int = 50
+    capital: float = 1000.0
+    risk_pct: float = 0.05
     contract_size: float = 100.0
     sl_atr: float = 2.0
-    tp_atr: float = 3.0
-    trail_trigger_atr: float = 1.0
-    trail_atr_mult: float = 1.0
+    tp_atr: float = 3.5
+    trail_trigger_atr: float = 2.0
+    trail_atr_mult: float = 1.2
     sl_pips: Optional[float] = None
     tp_pips: Optional[float] = None
     pip_size: float = 0.01
-    momentum_type: str = "macd"
+    momentum_type: str = "hybrid"
     momentum_window: int = 14
-    momentum_threshold: float = 0.1
+    momentum_threshold: float = 0.08
     macd_fast: int = 12
     macd_slow: int = 26
     macd_signal: int = 9
-    macd_threshold: float = 0.0
-    rsi_threshold_long: float = 60.0
-    rsi_threshold_short: float = 40.0
-    range_lookback: int = 40
-    range_min_atr: float = 0.8
-    range_min_points: float = 0.5
+    macd_threshold: float = 0.0004
+    rsi_threshold_long: float = 65.0
+    rsi_threshold_short: float = 35.0
+    range_lookback: int = 50
+    range_min_atr: float = 0.9
+    range_min_points: float = 0.0
     breakout_buffer_atr: float = 0.5
-    breakout_confirmation_bars: int = 2
+    breakout_confirmation_bars: int = 3
     atr_baseline_window: int = 14
-    atr_multiplier_min: float = 0.8
-    atr_multiplier_max: float = 4.0
-    trading_hours: Optional[str] = None
+    atr_multiplier_min: float = 1.0
+    atr_multiplier_max: float = 3.5
+    trading_hours: Optional[str] = "14:00-04:00"
     adx_window: int = 14
-    adx_threshold: float = 0.0
-    poll: float = 1.0
+    adx_threshold: float = 25.0
+    poll: float = 0.5
     live: bool = False
-    ensure_history_hours: float = 0.0
-    history_batch: int = 2000
-    history_max_days: int = 1
+    ensure_history_hours: float = 24.0
+    history_batch: int = 1000
+    history_max_days: int = 30
     ingest_live_db: bool = True
-    max_daily_loss: Optional[float] = None
-    max_loss_streak: Optional[int] = None
-    max_losses_per_session: Optional[int] = None
-    cooldown_minutes: Optional[int] = None
+    max_daily_loss: Optional[float] = 0.015
+    max_loss_streak: Optional[int] = 2
+    max_losses_per_session: Optional[int] = 2
+    cooldown_minutes: Optional[int] = 90
     allow_buy: bool = True
     allow_sell: bool = True
-    max_holding_minutes: Optional[int] = None
+    max_holding_minutes: Optional[int] = 180
     order_retry_times: int = 3
-    order_retry_delay_ms: int = 300
-    safety_entry_atr_mult: float = 0.1
-    spread_samples: int = 5
-    spread_sample_delay_ms: int = 8
-    allowed_deviation_points: int = 300
-    volatility_spike_atr_mult: float = 0.8
-    spike_delay_ms: int = 50
+    order_retry_delay_ms: int = 500
+    safety_entry_atr_mult: float = 1.2
+    spread_samples: int = 10
+    spread_sample_delay_ms: int = 100
+    allowed_deviation_points: int = 30
+    volatility_spike_atr_mult: float = 1.5
+    spike_delay_ms: int = 2000
     skip_reset_window: bool = True
-    latency_min_ms: int = 200
-    latency_max_ms: int = 400
-    slippage_usd: float = 0.05
-    order_reject_prob: float = 0.03
-    base_spread_points: int = 50
-    spread_spike_chance: float = 0.02
-    spread_spike_min_points: int = 80
-    spread_spike_max_points: int = 300
+    latency_min_ms: int = 50
+    latency_max_ms: int = 200
+    slippage_usd: float = 2.0
+    order_reject_prob: float = 0.05
+    base_spread_points: int = 20
+    spread_spike_chance: float = 0.15
+    spread_spike_min_points: int = 30
+    spread_spike_max_points: int = 50
     slip_per_atr_ratio: float = 0.2
-    requote_prob: float = 0.01
-    offquotes_prob: float = 0.005
-    timeout_prob: float = 0.005
-    stop_hunt_chance: float = 0.015
-    stop_hunt_min_atr_ratio: float = 0.2
-    stop_hunt_max_atr_ratio: float = 1.0
-    missing_tick_chance: float = 0.005
-    min_volume_multiplier: float = 1.1
+    requote_prob: float = 0.1
+    offquotes_prob: float = 0.08
+    timeout_prob: float = 0.03
+    stop_hunt_chance: float = 0.2
+    stop_hunt_min_atr_ratio: float = 1.0
+    stop_hunt_max_atr_ratio: float = 2.0
+    missing_tick_chance: float = 0.02
+    min_volume_multiplier: float = 1.2
     slippage_pips: Optional[float] = 3.0
 
 
@@ -128,6 +130,7 @@ class LiveStatus(BaseModel):
     last_signal: Optional[Dict[str, Any]]
     waiting_reason: Optional[str]
     cli_command: Optional[str]
+    recent_events: Optional[list[Dict[str, Any]]] = None
 
 
 logger = logging.getLogger(__name__)
@@ -211,6 +214,18 @@ class LiveStrategyManager:
                 (evt for evt in events if evt.get("type") in {"position_open", "position_close"}),
                 None,
             )
+
+            def _serialize(evt: Dict[str, Any]) -> Dict[str, Any]:
+                out = dict(evt)
+                ts = out.get("timestamp")
+                if isinstance(ts, datetime):
+                    out["timestamp"] = ts.isoformat()
+                return out
+
+            chosen_event: Optional[Dict[str, Any]] = None
+            if events:
+                # Ưu tiên log tính toán/status; nếu không có thì dùng event mới nhất
+                chosen_event = next((evt for evt in events if evt.get("type") != "quote"), events[0])
             return LiveStatus(
                 running=self._state.running,
                 started_at=self._state.started_at,
@@ -222,6 +237,7 @@ class LiveStrategyManager:
                 last_signal=last_signal,
                 waiting_reason=self._state.waiting_reason,
                 cli_command=self._state.cli_command,
+                recent_events=[_serialize(chosen_event)] if chosen_event else [],
             )
 
     async def _handle_event(self, event: Dict[str, Any]) -> None:

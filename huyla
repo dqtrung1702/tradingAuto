@@ -1,0 +1,62 @@
+{"symbol": "XAUUSD", "preset": null, "fast": 5, "slow": 13, 
+"ma_type": "ema", "timeframe": "3min", "trend": 0, "spread_atr_max": 0.35, 
+"reverse_exit": false, "market_state_window": 0, "volume": 0.2, "capital": 300.0, 
+"risk_pct": 0.2, "contract_size": 100.0, "size_from_risk": true, "sl_atr": 0.8, "tp_atr": 1.6, 
+"trail_trigger_atr": 0.6, "trail_atr_mult": 0.4, "sl_pips": null, "tp_pips": null, 
+"pip_size": 0.01, "momentum_type": "macd", "momentum_window": 0, "momentum_threshold": 0.0, 
+"macd_fast": 8, "macd_slow": 17, "macd_signal": 5, "macd_threshold": 0.0, 
+"rsi_threshold_long": 30.0, "rsi_threshold_short": 70.0, "range_lookback": 39, 
+"range_min_atr": 0.0, "range_min_points": 0.0, "breakout_buffer_atr": 0.02, "breakout_confirmation_bars": 1, "atr_baseline_window": 10, "atr_multiplier_min": 0.3, "atr_multiplier_max": 10.0, "trading_hours": null, "adx_window": 14, "adx_threshold": 0.0, "poll": 1.0, "live": false, "ensure_history_hours": 6.0, "history_batch": 2000, "history_max_days": 5, "ingest_live_db": false, "max_daily_loss": 80.0, "max_loss_streak": 6, "max_losses_per_session": 2, "cooldown_minutes": 15}
+
+
+
+db_url = postgresql+asyncpg://trader:admin@localhost:5432/mt5
+symbol = XAUUSD
+fast = 5
+slow = 13
+ma_type = ema
+timeframe = 3min
+capital = 300
+risk_pct = 0.2
+trend = 0
+market_state_window = 0
+adx_window = 14
+adx_threshold = 0
+atr_baseline_window = 10
+atr_multiplier_min = 0.3
+atr_multiplier_max = 10
+spread_atr_max = 0.35
+ensure_history_hours = 6
+poll = 1
+range_lookback = 39
+range_min_atr = 0
+range_min_points = 0
+breakout_buffer_atr = 0.02
+breakout_confirmation_bars = 1
+momentum_type = macd
+momentum_window = 0
+momentum_threshold = 0
+macd_fast = 8
+macd_slow = 17
+macd_signal = 5
+macd_threshold = 0
+rsi_threshold_long = 30
+rsi_threshold_short = 70
+sl_atr = 0.8
+tp_atr = 1.6
+trail_trigger_atr = 0.6
+trail_atr_mult = 0.4
+order_retry_times = 4
+contract_size = 100
+pip_size = 0.01
+max_daily_loss = 80
+max_loss_streak = 6
+max_losses_per_session = 2
+cooldown_minutes = 15
+backtest_start = 2025-10-01T00:00
+history_batch = 2000
+history_max_days = 5
+live = false
+reverse_exit = false
+allow_buy = true
+allow_sell = true
