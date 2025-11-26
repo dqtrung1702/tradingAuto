@@ -419,7 +419,9 @@ class MACrossoverStrategy:
         atr_min = atr_baseline * atr_min_mult
         atr_max = atr_baseline * atr_max_mult
         if atr_value < atr_min:
-            return False, False, f"ATR {atr_value:.2f} thấp hơn ngưỡng {atr_min:.2f}"
+            return False, False, (
+                f"ATR {atr_value:.2f} < baseline {atr_baseline:.2f} * mult {atr_min_mult:.2f} = {atr_min:.2f}"
+            )
         if atr_value > atr_max:
             return False, False, f"ATR {atr_value:.2f} vượt ngưỡng {atr_max:.2f} (quá biến động)"
 

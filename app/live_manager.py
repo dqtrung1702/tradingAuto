@@ -47,6 +47,8 @@ class LiveStartRequest(BaseModel):
     spread_atr_max: float = 0.10
     reverse_exit: bool = False
     market_state_window: int = 50
+    volume: float = 0.1
+    size_from_risk: bool = True
     capital: float = 1000.0
     risk_pct: float = 0.05
     contract_size: float = 100.0

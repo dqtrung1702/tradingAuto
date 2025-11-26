@@ -29,8 +29,10 @@ class BacktestRequest(BaseModel):
     ma_type: str = "ema"
     timeframe: str = "5min"
     trend: int = 50
+    volume: float = 0.1
     risk_pct: float = 0.05
     capital: float = 1000.0
+    size_from_risk: bool = True
     trail_trigger_atr: float = 2.0
     trail_atr_mult: float = 1.2
     spread_atr_max: float = 0.10
@@ -278,11 +280,12 @@ async def run_backtest_endpoint(payload: BacktestRequest) -> dict:
             market_state_window=payload.market_state_window,
             sl_atr=payload.sl_atr,
             tp_atr=payload.tp_atr,
+            volume=payload.volume,
             contract_size=payload.contract_size,
             sl_pips=payload.sl_pips,
             tp_pips=payload.tp_pips,
             pip_size=payload.pip_size,
-            size_from_risk=True,
+            size_from_risk=payload.size_from_risk,
             momentum_type=payload.momentum_type,
             momentum_window=payload.momentum_window,
             momentum_threshold=payload.momentum_threshold,
@@ -771,6 +774,15 @@ DASHBOARD_HTML = _inject_default_symbol("""
               <label>Risk % (fraction)</label>
               <input name="risk_pct" type="number" step="0.001" />
             </div>
+            <div>
+              <label>Volume cố định (lot)</label>
+              <input name="volume" type="number" step="0.01" />
+            </div>
+            <div style="display:flex; align-items:center;">
+              <label class="no-counter" style="padding-left:0; margin-top:1.2rem;">
+                <input type="checkbox" name="size_from_risk" /> Dùng % risk để tính volume (mặc định: bật)
+              </label>
+            </div>
           </div>
         </section>
 
@@ -955,7 +967,106 @@ DASHBOARD_HTML = _inject_default_symbol("""
         </section>
 
         <section>
-          <h3>VII. Risk Guard</h3>
+          <h3>VII. Thực thi &amp; Safety</h3>
+          <div class="flex">
+            <div>
+              <label>Safety entry (ATR)</label>
+              <input name="safety_entry_atr_mult" type="number" step="any" />
+            </div>
+            <div>
+              <label>Spread samples</label>
+              <input name="spread_samples" type="number" />
+            </div>
+            <div>
+              <label>Spread sample delay (ms)</label>
+              <input name="spread_sample_delay_ms" type="number" />
+            </div>
+            <div>
+              <label>Allowed deviation (points)</label>
+              <input name="allowed_deviation_points" type="number" />
+            </div>
+            <div>
+              <label>Volatility spike (ATR)</label>
+              <input name="volatility_spike_atr_mult" type="number" step="any" />
+            </div>
+            <div>
+              <label>Spike delay (ms)</label>
+              <input name="spike_delay_ms" type="number" />
+            </div>
+            <div style="display:flex; align-items:center;">
+              <label class="no-counter" style="padding-left:0; margin-top:1.2rem;">
+                <input type="checkbox" name="skip_reset_window" /> Bỏ reset cửa sổ đầu (mặc định: bật)
+              </label>
+            </div>
+            <div>
+              <label>Latency min (ms)</label>
+              <input name="latency_min_ms" type="number" />
+            </div>
+            <div>
+              <label>Latency max (ms)</label>
+              <input name="latency_max_ms" type="number" />
+            </div>
+            <div>
+              <label>Slippage (USD)</label>
+              <input name="slippage_usd" type="number" step="any" />
+            </div>
+            <div>
+              <label>Order reject prob</label>
+              <input name="order_reject_prob" type="number" step="any" />
+            </div>
+            <div>
+              <label>Base spread (points)</label>
+              <input name="base_spread_points" type="number" />
+            </div>
+            <div>
+              <label>Spread spike chance</label>
+              <input name="spread_spike_chance" type="number" step="any" />
+            </div>
+            <div>
+              <label>Spread spike min</label>
+              <input name="spread_spike_min_points" type="number" />
+            </div>
+            <div>
+              <label>Spread spike max</label>
+              <input name="spread_spike_max_points" type="number" />
+            </div>
+            <div>
+              <label>Slip per ATR ratio</label>
+              <input name="slip_per_atr_ratio" type="number" step="any" />
+            </div>
+            <div>
+              <label>Requote prob</label>
+              <input name="requote_prob" type="number" step="any" />
+            </div>
+            <div>
+              <label>Offquotes prob</label>
+              <input name="offquotes_prob" type="number" step="any" />
+            </div>
+            <div>
+              <label>Timeout prob</label>
+              <input name="timeout_prob" type="number" step="any" />
+            </div>
+            <div>
+              <label>Stop-hunt prob</label>
+              <input name="stop_hunt_chance" type="number" step="any" />
+            </div>
+            <div>
+              <label>Stop-hunt min ATR</label>
+              <input name="stop_hunt_min_atr_ratio" type="number" step="any" />
+            </div>
+            <div>
+              <label>Stop-hunt max ATR</label>
+              <input name="stop_hunt_max_atr_ratio" type="number" step="any" />
+            </div>
+            <div>
+              <label>Missing tick prob</label>
+              <input name="missing_tick_chance" type="number" step="any" />
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <h3>VIII. Risk Guard</h3>
           <div class="flex">
             <div>
               <label>Max daily loss (USD)</label>
@@ -983,7 +1094,7 @@ DASHBOARD_HTML = _inject_default_symbol("""
         </section>
 
         <section>
-          <h3>VIII. Backtest breakout</h3>
+          <h3>IX. Backtest breakout</h3>
           <p class="note" style="margin-bottom:0.4rem;">Sử dụng toàn bộ tham số cấu hình phía trên. Nếu bỏ trống thời gian sẽ auto lấy 24h gần nhất. Cấu hình backtest sẽ tự lưu sau mỗi lần chạy.</p>
           <div class="flex">
             <div>
@@ -1010,7 +1121,7 @@ DASHBOARD_HTML = _inject_default_symbol("""
         </section>
 
         <section>
-          <h3>IX. Lịch sử</h3>
+          <h3>X. Lịch sử</h3>
           <p class="note" style="margin-bottom:0.4rem;">Fetch tick về DB (copy_ticks_range).</p>
           <div class="flex">
             <div>
@@ -1141,7 +1252,83 @@ DASHBOARD_HTML = _inject_default_symbol("""
         el.textContent = timezoneSuffix || '';
       });
 
-      const defaultValues = {};
+      const defaultValues = {
+        db_url: "postgresql+asyncpg://trader:admin@localhost:5432/mt5",
+        symbol: "__DEFAULT_SYMBOL__",
+        fast: 9,
+        slow: 21,
+        ma_type: "ema",
+        timeframe: "5min",
+        trend: 50,
+        capital: 1000,
+        risk_pct: 0.05,
+        volume: 0.1,
+        size_from_risk: true,
+        contract_size: 100,
+        pip_size: 0.01,
+        poll: 0.5,
+        ensure_history_hours: 24,
+        history_batch: 1000,
+        history_max_days: 30,
+        spread_atr_max: 0.1,
+        market_state_window: 50,
+        trading_hours: "14:00-04:00",
+        adx_window: 14,
+        adx_threshold: 25,
+        momentum_type: "hybrid",
+        momentum_window: 14,
+        momentum_threshold: 0.08,
+        macd_fast: 12,
+        macd_slow: 26,
+        macd_signal: 9,
+        macd_threshold: 0.0004,
+        rsi_threshold_long: 65,
+        rsi_threshold_short: 35,
+        range_lookback: 50,
+        range_min_atr: 0.9,
+        range_min_points: 0,
+        breakout_buffer_atr: 0.5,
+        breakout_confirmation_bars: 3,
+        atr_baseline_window: 14,
+        atr_multiplier_min: 1.0,
+        atr_multiplier_max: 3.5,
+        sl_atr: 2.0,
+        tp_atr: 3.5,
+        trail_trigger_atr: 2.0,
+        trail_atr_mult: 1.2,
+        sl_pips: 0,
+        tp_pips: 0,
+        min_volume_multiplier: 1.2,
+        slippage_pips: 3.0,
+        safety_entry_atr_mult: 1.2,
+        spread_samples: 10,
+        spread_sample_delay_ms: 100,
+        allowed_deviation_points: 30,
+        volatility_spike_atr_mult: 1.5,
+        spike_delay_ms: 2000,
+        skip_reset_window: true,
+        latency_min_ms: 50,
+        latency_max_ms: 200,
+        slippage_usd: 2.0,
+        order_reject_prob: 0.05,
+        base_spread_points: 20,
+        spread_spike_chance: 0.15,
+        spread_spike_min_points: 30,
+        spread_spike_max_points: 50,
+        slip_per_atr_ratio: 0.2,
+        requote_prob: 0.1,
+        offquotes_prob: 0.08,
+        timeout_prob: 0.03,
+        stop_hunt_chance: 0.2,
+        stop_hunt_min_atr_ratio: 1.0,
+        stop_hunt_max_atr_ratio: 2.0,
+        missing_tick_chance: 0.02,
+        max_daily_loss: 0.015,
+        max_loss_streak: 2,
+        max_losses_per_session: 2,
+        cooldown_minutes: 90,
+        max_holding_minutes: 180,
+      };
       const intFields = new Set([
         'fast',
         'slow',
@@ -1173,6 +1360,7 @@ DASHBOARD_HTML = _inject_default_symbol("""
       ]);
       const floatFields = new Set([
         'capital',
+        'volume',
         'risk_pct',
         'spread_atr_max',
         'sl_atr',
@@ -1235,6 +1423,8 @@ DASHBOARD_HTML = _inject_default_symbol("""
         timeframe: 'Khung thời gian để resample tick (ví dụ 1min, 5min, 15min)',
         capital: 'Vốn quy đổi USD dùng để tính khối lượng khi bật size-from-risk',
         risk_pct: 'Tỷ lệ rủi ro mỗi lệnh (dạng thập phân, ví dụ 0.02 = 2% vốn)',
+        volume: 'Khối lượng cố định (lot) nếu không dùng size-from-risk',
+        size_from_risk: 'Bật để tính volume theo % rủi ro (risk_pct * capital / khoảng cách SL). Mặc định: bật',
         ensure_history_hours: 'Số giờ dữ liệu tối thiểu cần có trong DB trước khi chạy. Thiếu sẽ tự fetch MT5',
         poll: 'Chu kỳ lấy quote từ MT5 (giây). Giá trị nhỏ => phản ứng nhanh hơn',
         spread_atr_max: 'Ngưỡng spread tối đa (tính theo ATR). Spread cao hơn sẽ bỏ qua tín hiệu',
@@ -1271,6 +1461,30 @@ DASHBOARD_HTML = _inject_default_symbol("""
         contract_size: 'Hệ số quy đổi PnL (ví dụ XAUUSD ~100 oz/lot)',
         sl_atr: 'Hệ số ATR dùng để đặt Stop Loss',
         tp_atr: 'Hệ số ATR dùng để đặt Take Profit',
+        slippage_usd: 'Trượt giá tối đa mô phỏng (USD) cho mỗi lệnh',
+        slippage_pips: 'Trượt giá tối đa mô phỏng (pips) cho mỗi lệnh',
+        safety_entry_atr_mult: 'Khoảng đệm an toàn bổ sung tính theo ATR trước khi đặt lệnh',
+        spread_samples: 'Số lần lấy mẫu spread để kiểm tra trước khi vào lệnh',
+        spread_sample_delay_ms: 'Delay giữa các mẫu spread (ms)',
+        allowed_deviation_points: 'Độ lệch giá tối đa cho phép khi khớp lệnh (points)',
+        volatility_spike_atr_mult: 'Ngưỡng ATR spike để hoãn vào lệnh',
+        spike_delay_ms: 'Thời gian chờ sau khi phát hiện spike (ms)',
+        skip_reset_window: 'Bỏ qua reset window khởi tạo (dùng khi đã có đủ dữ liệu). Mặc định: bật',
+        latency_min_ms: 'Độ trễ tối thiểu mô phỏng (ms)',
+        latency_max_ms: 'Độ trễ tối đa mô phỏng (ms)',
+        order_reject_prob: 'Xác suất lệnh bị từ chối (reject)',
+        base_spread_points: 'Spread cơ bản (points) dùng cho mô phỏng',
+        spread_spike_chance: 'Xác suất xuất hiện spike spread',
+        spread_spike_min_points: 'Độ lớn spike tối thiểu (points)',
+        spread_spike_max_points: 'Độ lớn spike tối đa (points)',
+        slip_per_atr_ratio: 'Tỷ lệ trượt giá theo ATR',
+        requote_prob: 'Xác suất bị requote',
+        offquotes_prob: 'Xác suất offquotes',
+        timeout_prob: 'Xác suất timeout',
+        stop_hunt_chance: 'Xác suất bị stop-hunt mô phỏng',
+        stop_hunt_min_atr_ratio: 'Tỷ lệ ATR tối thiểu của stop-hunt',
+        stop_hunt_max_atr_ratio: 'Tỷ lệ ATR tối đa của stop-hunt',
+        missing_tick_chance: 'Xác suất thiếu tick khi mô phỏng',
         // ingest_live_db: luôn bật, không cần hướng dẫn
         live: 'Bật để gửi lệnh thật tới MT5. Nếu tắt sẽ chạy chế độ paper',
         backtest_start: 'Thời điểm bắt đầu backtest (ISO 8601)',
@@ -1291,14 +1505,26 @@ DASHBOARD_HTML = _inject_default_symbol("""
             input.value = savedDb;
           }
         }
-        if (!input.value) input.value = (value !== undefined && value !== null) ? value : '';
-        if (!input.placeholder && value !== undefined && value !== null && value !== '') {
-          input.placeholder = `vd: ${value}`;
+        if (input.type === 'checkbox') {
+          if (value !== undefined && value !== null) input.checked = Boolean(value);
+        } else {
+          if (!input.value && value !== undefined && value !== null) input.value = value;
+          if (!input.placeholder && value !== undefined && value !== null && value !== '') {
+            input.placeholder = `vd: ${value}`;
+          }
         }
         const wrap = input.closest('div');
         const label = wrap ? wrap.querySelector('label') : null;
-        if (label && !label.dataset.hasDefault) {
-          label.textContent = `${label.textContent || key} (vd: ${value})`;
+        if (label && !label.dataset.hasDefault && value !== undefined && value !== null && value !== '') {
+          const hasCheckbox = label.querySelector('input[type="checkbox"]');
+          if (hasCheckbox) {
+            const hint = document.createElement('span');
+            hint.textContent = ` (vd: ${value})`;
+            hint.style.marginLeft = '0.25rem';
+            label.appendChild(hint);
+          } else {
+            label.textContent = `${label.textContent || key} (vd: ${value})`;
+          }
           label.dataset.hasDefault = '1';
         }
       });
@@ -1403,7 +1629,12 @@ DASHBOARD_HTML = _inject_default_symbol("""
           }
         }
         // Các checkbox không xuất hiện trong FormData khi unchecked -> set thủ công
-        ['live'].forEach((name) => {
+        ['live', 'skip_reset_window'].forEach((name) => {
+          if (Object.prototype.hasOwnProperty.call(form, name) && form[name]) {
+            payload[name] = form[name].checked;
+          }
+        });
+        ['size_from_risk'].forEach((name) => {
           if (Object.prototype.hasOwnProperty.call(form, name) && form[name]) {
             payload[name] = form[name].checked;
           }
@@ -1866,13 +2097,25 @@ function applySuggestionToForm(suggestion = {}) {
       function applyDefaultsToEmptyInputs() {
         const controls = form.querySelectorAll('input, select, textarea');
         controls.forEach((el) => {
-          if (el.type === 'checkbox' || el.type === 'radio') return;
+          if (el.type === 'checkbox') {
+            const name = el.name;
+            if (!name) return;
+            if (Object.prototype.hasOwnProperty.call(defaultValues, name)) {
+              el.checked = Boolean(defaultValues[name]);
+            }
+            return;
+          }
+          if (el.type === 'radio') return;
           const name = el.name;
           if (!name) return;
           const isEmpty = el.value === undefined || el.value === null || el.value === '';
           if (isEmpty) {
             if (intFields.has(name) || floatFields.has(name)) {
-              el.value = '0';
+              if (Object.prototype.hasOwnProperty.call(defaultValues, name) && defaultValues[name] !== undefined && defaultValues[name] !== null) {
+                el.value = defaultValues[name];
+              } else {
+                el.value = '0';
+              }
             } else {
               el.value = '';
             }

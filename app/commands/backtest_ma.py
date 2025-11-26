@@ -224,7 +224,7 @@ async def run_backtest(
     config.tp_atr = tp_atr
     config.volume = volume
     config.contract_size = contract_size
-    config.size_from_risk = True
+    config.size_from_risk = size_from_risk
     config.max_holding_minutes = max_holding_minutes
     config.momentum_type = momentum_type
     config.momentum_window = momentum_window

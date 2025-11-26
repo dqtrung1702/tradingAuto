@@ -143,7 +143,7 @@ async def run_live_strategy(
     cfg.capital = capital
     cfg.risk_pct = risk_pct
     cfg.contract_size = contract_size
-    cfg.size_from_risk = True
+    cfg.size_from_risk = size_from_risk
     cfg.sl_atr = sl_atr
     cfg.tp_atr = tp_atr
     cfg.trail_trigger_atr = trail_trigger_atr
