@@ -1,3 +1,1 @@
-"""
-Realtime XAUUSD quote service package.
-"""
+"""CLI utilities for breakout/backtest tooling."""

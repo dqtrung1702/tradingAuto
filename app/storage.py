@@ -10,10 +10,8 @@ from sqlalchemy import (
     BigInteger,
     Float,
     String,
-    JSON,
     UniqueConstraint,
     select,
-    DateTime,
 )
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -35,49 +33,6 @@ ticks_table = Table(
     Column("last", Float),
     UniqueConstraint("symbol", "time_msc", name="uq_ticks_symbol_time"),
 )
-
-trades_table = Table(
-    "trades",
-    metadata,
-    Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("side", String(8)),
-    Column("price", Float),
-    Column("time_msc", BigInteger),
-    Column("pnl", Float),
-    Column("meta", JSON, nullable=True),
-)
-
-run_configs_table = Table(
-    "run_configs",
-    metadata,
-    Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("started_at", DateTime(timezone=True), nullable=False, index=True),
-    Column("config", JSON, nullable=False),
-)
-
-backtest_trades_table = Table(
-    "backtest_trades",
-    metadata,
-    Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("run_id", String(64), nullable=False, index=True),
-    Column("symbol", String(64), nullable=False, index=True),
-    Column("preset", String(64), nullable=True),
-    Column("side", String(8), nullable=False),
-    Column("entry_time", DateTime(timezone=True), nullable=False),
-    Column("exit_time", DateTime(timezone=True), nullable=False),
-    Column("entry_price", Float, nullable=False),
-    Column("exit_price", Float, nullable=False),
-    Column("stop_loss", Float),
-    Column("take_profit", Float),
-    Column("volume", Float),
-    Column("pnl", Float),
-    Column("pct", Float),
-    Column("usd_pnl", Float),
-    Column("run_start", DateTime(timezone=True), nullable=False, index=True),
-    Column("run_end", DateTime(timezone=True), nullable=False),
-    Column("created_at", DateTime(timezone=True), nullable=False, index=True),
-)
-
 
 def _get_db_url(provided: Optional[str] = None) -> str:
     if provided:
@@ -171,35 +126,13 @@ class Storage:
                     await conn.execute(ticks_table.insert(), batch)
 
     async def insert_trade(self, side: str, price: float, time_msc: int, pnl: Optional[float] = None, meta: Optional[dict] = None) -> None:
-        if not self._engine:
-            raise RuntimeError("Storage not initialized")
-        async with self._engine.begin() as conn:
-            await conn.execute(trades_table.insert().values(side=side, price=price, time_msc=time_msc, pnl=pnl, meta=meta))
+        raise RuntimeError("Trade table removed")
 
     async def insert_run_config(self, started_at: datetime, config: Dict[str, Any]) -> None:
-        if not self._engine:
-            raise RuntimeError("Storage not initialized")
-        ts = started_at.astimezone(timezone.utc)
-        async with self._engine.begin() as conn:
-            await conn.execute(run_configs_table.insert().values(started_at=ts, config=config))
+        raise RuntimeError("Run config table removed")
 
     async def insert_backtest_trades(self, rows: List[Dict[str, Any]]) -> None:
-        if not rows:
-            return
-        if not self._engine:
-            raise RuntimeError("Storage not initialized")
-        normalized: List[Dict[str, Any]] = []
-        for row in rows:
-            norm = dict(row)
-            for key in ("entry_time", "exit_time", "run_start", "run_end", "created_at"):
-                if key in norm and isinstance(norm[key], datetime):
-                    if norm[key].tzinfo is None:
-                        norm[key] = norm[key].replace(tzinfo=timezone.utc)
-                    else:
-                        norm[key] = norm[key].astimezone(timezone.utc)
-            normalized.append(norm)
-        async with self._engine.begin() as conn:
-            await conn.execute(backtest_trades_table.insert(), normalized)
+        raise RuntimeError("Backtest trades table removed")
 
     async def has_ticks_since(self, symbol: str, since_time_msc: int) -> bool:
         await self.ensure_initialized()

@@ -9,65 +9,57 @@ from app.config import get_settings
 from app.models import Quote
 from app.quote_service import QuoteService
 from app.storage import Storage
-from app.strategy_presets import resolve_preset
-from app.strategies.ma_crossover import MAConfig, MACrossoverStrategy
+from app.Breakout_Strategy import MAConfig, MACrossoverStrategy
 
 
 async def run_live_strategy(
     *,
     db_url: str,
     symbol: Optional[str],
-    preset: Optional[str] = None,
-    fast: int,
-    slow: int,
-    ma_type: str,
     timeframe: str,
-    trend: int,
-    spread_atr_max: float,
-    reverse_exit: bool,
-    market_state_window: int,
-    volume: float,
+    donchian_period: int,
+    ema_trend_period: int,
+    atr_period: int,
+    entry_buffer_points: float,
+    breakeven_after_rr: Optional[float],
+    exit_on_opposite: bool,
     capital: float,
     risk_pct: float,
-    contract_size: float,
     size_from_risk: bool,
+    contract_size: float,
+    pip_size: float,
+    volume: float,
+    min_volume: float,
+    volume_step: float,
+    max_positions: int,
     sl_atr: float,
     tp_atr: float,
-    sl_pips: Optional[float],
-    tp_pips: Optional[float],
-    pip_size: float,
-    momentum_window: int,
-    momentum_threshold: float,
-    momentum_type: str,
-    macd_fast: int,
-    macd_slow: int,
-    macd_signal: int,
-    macd_threshold: float,
-    rsi_threshold_long: float,
-    rsi_threshold_short: float,
-    range_lookback: int,
-    range_min_atr: float,
-    range_min_points: float,
-    breakout_buffer_atr: float,
-    breakout_confirmation_bars: int,
-    atr_baseline_window: int,
-    atr_multiplier_min: float,
-    atr_multiplier_max: float,
-    trading_hours: Optional[str],
-    adx_window: int,
-    adx_threshold: float,
-    poll: float,
-    live: bool,
-    ensure_history_hours: float,
-    history_batch: int,
-    history_max_days: int,
-    ingest_live_db: bool,
     trail_trigger_atr: float,
     trail_atr_mult: float,
+    breakeven_atr: float,
+    partial_close: bool,
+    partial_close_atr: float,
+    trading_hours: Optional[str],
+    min_atr_multiplier: float,
+    max_atr_multiplier: float,
+    max_spread_points: float,
+    allowed_deviation_points: float,
+    slippage_points: float,
+    skip_weekend: bool,
     max_daily_loss: Optional[float],
     max_loss_streak: Optional[int],
     max_losses_per_session: Optional[int],
     cooldown_minutes: Optional[int],
+    session_cooldown_minutes: int,
+    poll: float,
+    live: bool,
+    order_retry_times: int,
+    order_retry_delay_ms: int,
+    magic_number: int,
+    ensure_history_hours: float,
+    history_batch: int,
+    history_max_days: int,
+    ingest_live_db: bool,
     event_handler: Optional[Callable[[Dict[str, Any]], Awaitable[None] | None]] = None,
     quote_service: Optional[QuoteService] = None,
 ) -> None:
@@ -75,8 +67,6 @@ async def run_live_strategy(
     storage = Storage(db_url)
     await storage.init()
     resolved_symbol = symbol or base_settings.quote_symbol
-    preset_cfg = resolve_preset(preset)
-
     if ensure_history_hours > 0:
         await _ensure_history_data(
             storage,
@@ -102,77 +92,47 @@ async def run_live_strategy(
 
     cfg = MAConfig(
         symbol=resolved_symbol,
-        fast_ma=preset_cfg.fast_ma if preset_cfg else fast,
-        slow_ma=preset_cfg.slow_ma if preset_cfg else slow,
-        ma_type=preset_cfg.ma_type if preset_cfg else ma_type,
-        timeframe=preset_cfg.timeframe if preset_cfg else timeframe,
+        timeframe=timeframe,
+        donchian_period=donchian_period,
+        ema_trend_period=ema_trend_period,
+        atr_period=atr_period,
+        entry_buffer_points=entry_buffer_points,
+        breakeven_after_rr=breakeven_after_rr,
+        exit_on_opposite=exit_on_opposite,
         paper_mode=not live,
     )
-    cfg.trend_ma = trend
-    cfg.spread_atr_max = preset_cfg.spread_atr_max if preset_cfg else spread_atr_max
-    cfg.reverse_exit = reverse_exit
-    cfg.market_state_window = market_state_window
     cfg.volume = volume
+    cfg.min_volume = min_volume
+    cfg.volume_step = volume_step
+    cfg.max_positions = max_positions
+    cfg.live = live
     cfg.capital = capital
     cfg.risk_pct = risk_pct
     cfg.contract_size = contract_size
     cfg.size_from_risk = size_from_risk
-    cfg.sl_atr = preset_cfg.sl_atr if preset_cfg else sl_atr
-    cfg.tp_atr = preset_cfg.tp_atr if preset_cfg else tp_atr
+    cfg.pip_size = pip_size
+    cfg.sl_atr = sl_atr
+    cfg.tp_atr = tp_atr
     cfg.trail_trigger_atr = trail_trigger_atr
     cfg.trail_atr_mult = trail_atr_mult
-    cfg.momentum_type = preset_cfg.momentum_type if preset_cfg else momentum_type
-    cfg.momentum_window = preset_cfg.momentum_window if preset_cfg else momentum_window
-    cfg.momentum_threshold = preset_cfg.momentum_threshold if preset_cfg else momentum_threshold
-    cfg.macd_fast = preset_cfg.macd_fast if preset_cfg else macd_fast
-    cfg.macd_slow = preset_cfg.macd_slow if preset_cfg else macd_slow
-    cfg.macd_signal = preset_cfg.macd_signal if preset_cfg else macd_signal
-    cfg.macd_threshold = preset_cfg.macd_threshold if preset_cfg else macd_threshold
-    cfg.range_lookback = preset_cfg.range_lookback if preset_cfg else range_lookback
-    cfg.range_min_atr = preset_cfg.range_min_atr if preset_cfg else range_min_atr
-    cfg.range_min_points = preset_cfg.range_min_points if preset_cfg else range_min_points
-    cfg.breakout_buffer_atr = preset_cfg.breakout_buffer_atr if preset_cfg else breakout_buffer_atr
-    cfg.breakout_confirmation_bars = (
-        preset_cfg.breakout_confirmation_bars if preset_cfg else breakout_confirmation_bars
-    )
-    cfg.atr_baseline_window = preset_cfg.atr_baseline_window if preset_cfg else atr_baseline_window
-    cfg.atr_multiplier_min = preset_cfg.atr_multiplier_min if preset_cfg else atr_multiplier_min
-    cfg.atr_multiplier_max = preset_cfg.atr_multiplier_max if preset_cfg else atr_multiplier_max
-    if trading_hours:
-        cfg.trading_hours = [h.strip() for h in trading_hours.split(',')]
-    elif preset_cfg and preset_cfg.trading_hours:
-        cfg.trading_hours = [h.strip() for h in preset_cfg.trading_hours.split(',')]
-    else:
-        cfg.trading_hours = None
-    cfg.adx_window = preset_cfg.adx_window if preset_cfg else adx_window
-    cfg.adx_threshold = preset_cfg.adx_threshold if preset_cfg else adx_threshold
-    cfg.rsi_threshold_long = (
-        preset_cfg.rsi_threshold_long if (preset_cfg and preset_cfg.rsi_threshold_long is not None) else rsi_threshold_long
-    )
-    cfg.rsi_threshold_short = (
-        preset_cfg.rsi_threshold_short if (preset_cfg and preset_cfg.rsi_threshold_short is not None) else rsi_threshold_short
-    )
-    cfg.max_daily_loss = (
-        preset_cfg.max_daily_loss if (preset_cfg and preset_cfg.max_daily_loss is not None) else max_daily_loss
-    )
-    cfg.max_consecutive_losses = (
-        preset_cfg.max_consecutive_losses
-        if (preset_cfg and preset_cfg.max_consecutive_losses is not None)
-        else max_loss_streak
-    )
-    cfg.max_losses_per_session = (
-        preset_cfg.max_losses_per_session
-        if (preset_cfg and preset_cfg.max_losses_per_session is not None)
-        else max_losses_per_session
-    )
-    cfg.cooldown_minutes = (
-        preset_cfg.cooldown_minutes if (preset_cfg and preset_cfg.cooldown_minutes is not None) else cooldown_minutes
-    )
-
-    if sl_pips is not None and tp_pips is not None:
-        setattr(cfg, 'sl_pips', float(sl_pips))
-        setattr(cfg, 'tp_pips', float(tp_pips))
-        setattr(cfg, 'pip_size', float(pip_size))
+    cfg.breakeven_atr = breakeven_atr
+    cfg.partial_close = partial_close
+    cfg.partial_close_atr = partial_close_atr
+    cfg.min_atr_multiplier = min_atr_multiplier
+    cfg.max_atr_multiplier = max_atr_multiplier
+    cfg.max_spread_points = max_spread_points
+    cfg.allowed_deviation_points = allowed_deviation_points
+    cfg.slippage_points = slippage_points
+    cfg.trading_hours = [h.strip() for h in trading_hours.split(',')] if trading_hours else None
+    cfg.skip_weekend = skip_weekend
+    cfg.max_daily_loss = max_daily_loss
+    cfg.max_loss_streak = max_loss_streak
+    cfg.max_losses_per_session = max_losses_per_session
+    cfg.cooldown_minutes = cooldown_minutes
+    cfg.session_cooldown_minutes = session_cooldown_minutes
+    cfg.order_retry_times = order_retry_times
+    cfg.order_retry_delay_ms = order_retry_delay_ms
+    cfg.magic_number = magic_number
 
     strategy = MACrossoverStrategy(cfg, local_quote_service, storage, event_handler=event_handler)
     strategy._running = True  # noqa: SLF001 - giữ nguyên hành vi script gốc
@@ -242,12 +202,11 @@ async def _ensure_history_data(
 
 
 async def _ingest_tick(storage: Storage, symbol: str, quote: Quote) -> None:
-    utc7 = timezone(timedelta(hours=7))
-    dt_vn = quote.updated_at.astimezone(utc7)
+    dt_utc = quote.updated_at.astimezone(timezone.utc)
     row = {
         "symbol": symbol,
-        "time_msc": int(quote.updated_at.timestamp() * 1000),
-        "datetime": dt_vn.isoformat(),
+        "time_msc": int(dt_utc.timestamp() * 1000),
+        "datetime": dt_utc.isoformat(),
         "bid": float(quote.bid) if quote.bid is not None else None,
         "ask": float(quote.ask) if quote.ask is not None else None,
         "last": float(quote.price) if quote.price is not None else None,

@@ -15,10 +15,3 @@ class Quote(BaseModel):
     currency: Optional[str] = Field(default=None, description="Đơn vị tiền tệ của quote")
     source: str = Field(description="Nguồn dữ liệu upstream")
     updated_at: datetime = Field(description="Timestamp UTC của quote từ upstream")
-
-
-class HealthStatus(BaseModel):
-    status: str = Field(description="Trạng thái đơn giản của service")
-    last_quote_timestamp: Optional[datetime] = Field(
-        default=None, description="Thời điểm cache được cập nhật lần cuối"
-    )

@@ -46,21 +46,17 @@ def resample_ticks(df: pd.DataFrame, timeframe: str = '1min') -> pd.DataFrame:
     Returns:
         DataFrame with OHLCV data
     """
+    timeframe = timeframe.lower()  # pandas cảnh báo 'H' viết hoa sẽ bị loại bỏ
     # Use mid price for OHLC
     df['price'] = (df['bid'] + df['ask']) / 2
     df_resampled = df.set_index('datetime').resample(timeframe).agg({
         'price': ['first', 'max', 'min', 'last'],
-        'time_msc': 'last',  # keep last timestamp
-        'bid': 'last',  # keep last bid/ask for reference
-        'ask': 'last'
+        'bid': 'last',
+        'ask': 'last',
     })
-    
+
     # Flatten column names
-    df_resampled.columns = ['open', 'high', 'low', 'close', 'timestamp', 'bid', 'ask']
-    
-    # Calculate mid price and spread
-    df_resampled['spread'] = df_resampled['ask'] - df_resampled['bid']
-    
+    df_resampled.columns = ['open', 'high', 'low', 'close', 'bid', 'ask']
     return df_resampled.reset_index()
 
 
@@ -135,4 +131,4 @@ async def get_ma_series(
     atr_period = atr_window or window
     df['atr'] = atr(df[['high', 'low', 'close']], atr_period)
     
-    return df[['datetime', 'open', 'high', 'low', 'close', 'ma', 'atr', 'spread']]
+    return df[['datetime', 'open', 'high', 'low', 'close', 'ma', 'atr']]

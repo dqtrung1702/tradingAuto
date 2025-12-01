@@ -1,10 +1,7 @@
 import asyncio
 import logging
-from contextlib import suppress
 from datetime import datetime, timezone
-from typing import Optional, Set
-
-from fastapi import WebSocket
+from typing import Optional
 
 try:  # Thư viện MetaTrader5 chỉ khả dụng trên Windows
     import MetaTrader5 as mt5  # type: ignore
@@ -148,90 +145,3 @@ class QuoteService:
             pass
         self._initialized = False
         self._symbol_selected = False
-
-
-class QuoteCache:
-    """Bộ đệm nhớ trong lưu quote mới nhất."""
-
-    def __init__(self) -> None:
-        self._quote: Optional[Quote] = None
-        self._lock = asyncio.Lock()
-
-    async def set(self, quote: Quote) -> None:
-        async with self._lock:
-            self._quote = quote
-
-    async def get(self) -> Optional[Quote]:
-        async with self._lock:
-            return self._quote
-
-
-class WebSocketManager:
-    """Quản lý kết nối WebSocket và phát payload tới client."""
-
-    def __init__(self) -> None:
-        self._connections: Set[WebSocket] = set()
-        self._lock = asyncio.Lock()
-
-    async def connect(self, websocket: WebSocket) -> None:
-        await websocket.accept()
-        async with self._lock:
-            self._connections.add(websocket)
-
-    async def disconnect(self, websocket: WebSocket) -> None:
-        async with self._lock:
-            self._connections.discard(websocket)
-
-    async def broadcast(self, quote: Quote) -> None:
-        async with self._lock:
-            connections = list(self._connections)
-
-        if not connections:
-            return
-
-        payload = quote.model_dump()
-        for ws in connections:
-            try:
-                await ws.send_json(payload)
-            except Exception as exc:  # pragma: no cover - phụ thuộc client
-                logger.warning("Gửi WebSocket thất bại: %s", exc)
-                await self.disconnect(ws)
-
-
-class QuotePoller:
-    """Nhiệm vụ nền định kỳ cập nhật cache và broadcast WS."""
-
-    def __init__(
-        self,
-        provider: QuoteService,
-        cache: QuoteCache,
-        ws_manager: WebSocketManager,
-        interval_seconds: float,
-    ) -> None:
-        self._provider = provider
-        self._cache = cache
-        self._ws_manager = ws_manager
-        self._interval_seconds = interval_seconds
-        self._task: Optional[asyncio.Task] = None
-
-    async def start(self) -> None:
-        if self._task is None:
-            self._task = asyncio.create_task(self._run(), name="quote-poller")
-
-    async def stop(self) -> None:
-        if self._task:
-            self._task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._task
-            self._task = None
-
-    async def _run(self) -> None:
-        while True:
-            try:
-                quote = await self._provider.fetch_quote()
-                await self._cache.set(quote)
-
-                await self._ws_manager.broadcast(quote)
-            except Exception:
-                logger.exception("Không thể cập nhật quote")
-            await asyncio.sleep(self._interval_seconds)
