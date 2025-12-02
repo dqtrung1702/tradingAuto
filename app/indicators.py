@@ -32,7 +32,10 @@ async def get_tick_data(storage: Storage,
 
     # Convert to DataFrame
     df = pd.DataFrame(rows, columns=ticks_table.columns.keys())
-    df['datetime'] = pd.to_datetime(df['datetime'], format='ISO8601')
+    if df.empty:
+        return df
+    df['datetime'] = pd.to_datetime(df['datetime'], utc=True, errors='coerce')
+    df = df.dropna(subset=['datetime'])
     return df
 
 
@@ -46,6 +49,8 @@ def resample_ticks(df: pd.DataFrame, timeframe: str = '1min') -> pd.DataFrame:
     Returns:
         DataFrame with OHLCV data
     """
+    if df.empty:
+        return pd.DataFrame(columns=['datetime', 'open', 'high', 'low', 'close', 'bid', 'ask'])
     timeframe = timeframe.lower()  # pandas cảnh báo 'H' viết hoa sẽ bị loại bỏ
     # Use mid price for OHLC
     df['price'] = (df['bid'] + df['ask']) / 2
@@ -106,6 +111,8 @@ async def get_ma_series(
     window: int = 20,
     ma_type: str = 'sma',
     atr_window: Optional[int] = None,
+    ignore_gaps: bool = False,
+    closed_sessions: Optional[List[str]] = None,
 ) -> pd.DataFrame:
     """Get moving average series for a symbol.
     
@@ -126,9 +133,58 @@ async def get_ma_series(
     
     # Resample to candles
     df = resample_ticks(df_ticks, timeframe)
+    if ignore_gaps and not df.empty:
+        tf = timeframe.lower()
+        full_index = pd.date_range(start=df['datetime'].min(), end=df['datetime'].max(), freq=tf)
+        df = (
+            df.set_index('datetime')
+            .reindex(full_index)
+            .ffill()
+            .reset_index()
+            .rename(columns={'index': 'datetime'})
+        )
+    df = _filter_closed_sessions(df, closed_sessions or [])
     # Calculate indicators
     df['ma'] = moving_average(df['close'], window, ma_type)
     atr_period = atr_window or window
     df['atr'] = atr(df[['high', 'low', 'close']], atr_period)
     
     return df[['datetime', 'open', 'high', 'low', 'close', 'ma', 'atr']]
+
+
+def _filter_closed_sessions(df: pd.DataFrame, closed_sessions: List[str]) -> pd.DataFrame:
+    if df.empty:
+        return df
+    df = df.copy()
+    df['datetime'] = pd.to_datetime(df['datetime'], utc=True, errors='coerce')
+    df = df.dropna(subset=['datetime'])
+    df = df[df['datetime'].dt.weekday < 5]
+    if not closed_sessions:
+        return df
+    minutes = df['datetime'].dt.hour * 60 + df['datetime'].dt.minute
+    closed_mask = pd.Series(False, index=df.index)
+    for session in closed_sessions:
+        try:
+            start_str, end_str = session.split('-', 1)
+            start_min = _to_minutes(start_str.strip())
+            end_min = _to_minutes(end_str.strip())
+        except ValueError:
+            continue
+        if start_min is None or end_min is None:
+            continue
+        if end_min < start_min:
+            mask = (minutes >= start_min) | (minutes <= end_min)
+        else:
+            mask = (minutes >= start_min) & (minutes <= end_min)
+        closed_mask |= mask
+    return df[~closed_mask]
+
+
+def _to_minutes(val: str) -> Optional[int]:
+    try:
+        parts = val.split(":")
+        h = int(parts[0])
+        m = int(parts[1]) if len(parts) > 1 else 0
+        return h * 60 + m
+    except Exception:
+        return None

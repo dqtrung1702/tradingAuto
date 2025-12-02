@@ -60,8 +60,7 @@ def get_settings() -> Settings:
 DEFAULT_DONCHIAN_PARAMS: Dict[str, Any] = {
     # Phổ quát / CLI
     "db_url": "postgresql+asyncpg://trader:admin@localhost:5432/mt5",
-    "start": "2025-11-01T00:00:00+00:00",
-    "end": "2025-11-30T23:59:59+00:00",
+    "start": "2025-12-01T00:00:00+00:00",
     # Chiến lược Donchian/EMA
     "symbol": "XAUUSD",
     "timeframe": "1H",
@@ -89,7 +88,7 @@ DEFAULT_DONCHIAN_PARAMS: Dict[str, Any] = {
     "partial_close": True,
     "partial_close_atr": 2.8,
     # Lọc phiên / biến động
-    "trading_hours": ["07:00-21:00"],
+    "trading_hours": ["00:00-23:59"],
     "min_atr_multiplier": 0.8,
     "max_atr_multiplier": 3.0,
     "max_spread_points": 50,
@@ -97,7 +96,6 @@ DEFAULT_DONCHIAN_PARAMS: Dict[str, Any] = {
     "slippage_points": 0.0,
     "spread_samples": 10,
     "spread_sample_delay_ms": 100,
-    "skip_weekend": True,
     # Risk control
     "max_daily_loss": 0.06,
     "cooldown_minutes": 60,
@@ -108,10 +106,15 @@ DEFAULT_DONCHIAN_PARAMS: Dict[str, Any] = {
     "order_retry_delay_ms": 500,
     "magic_number": 20251230,
     "poll": 1.0,
-    "ensure_history_hours": 24,
+    "ensure_history_hours": 240,
     "history_batch": 2000,
     "history_max_days": 30,
-    "log_level": "INFO",
+    # Logging
+    "log_level": "DEBUG",
+    "log_file": "logs/app.log",
+    "log_to_console": False,
+    "ignore_gaps": True,
+    "closed_sessions": ["23:00-02:00"],
     "dry_run": False,
     "live": False,
 }

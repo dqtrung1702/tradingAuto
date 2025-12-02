@@ -6,6 +6,7 @@ import numpy as np
 import logging
 import inspect
 import asyncio
+from collections import defaultdict, Counter
 from typing import Any, Awaitable, Callable, List, Tuple, Dict, Optional
 
 try:  # MetaTrader5 chỉ khả dụng khi cài đặt trên Windows
@@ -55,6 +56,8 @@ class MAConfig:
     breakeven_atr: float = 1.5
     partial_close: bool = True
     partial_close_atr: float = 2.8
+    ignore_gaps: bool = True
+    closed_sessions: Optional[List[str]] = None
 
     # Lọc phiên / biến động
     trading_hours: Optional[List[str]] = None
@@ -65,7 +68,6 @@ class MAConfig:
     slippage_points: float = 0.0
     spread_samples: int = 10
     spread_sample_delay_ms: int = 100
-    skip_weekend: bool = True
 
     # Risk control
     max_daily_loss: Optional[float] = None
@@ -126,6 +128,11 @@ class MACrossoverStrategy:
         self._loss_streak: int = 0
         self._session_losses: Dict[str, int] = {}
         self._cooldown_until: Optional[datetime] = None
+        # Debug counters for live visibility
+        self._debug_counters: Dict[str, int] = defaultdict(int)
+        self._debug_reasons: List[str] = []
+        self._sample_bars_logged = 0
+        self._MAX_SAMPLE_BARS = 20
 
     async def start(self):
         """Bắt đầu chạy chiến lược."""
@@ -155,7 +162,7 @@ class MACrossoverStrategy:
         now_utc = datetime.now(timezone.utc)
         now_local = now_utc.astimezone(self._tz)
         self.logger.debug("Quote %s bid=%.5f ask=%.5f @ %s", symbol, bid, ask, now_local.isoformat())
-        if getattr(self.config, "skip_weekend", False) and now_local.weekday() >= 5:
+        if now_local.weekday() >= 5:
             await self._emit_status("Bỏ qua quote cuối tuần", {"now": now_local.isoformat()})
             return
         if (not self._last_update or
@@ -241,14 +248,42 @@ class MACrossoverStrategy:
             return False, False, "Chưa đủ dữ liệu breakout"
 
         current = df.iloc[idx]
+        self._debug_counters["bars_checked"] += 1
         range_high = current.get("donchian_high")
         range_low = current.get("donchian_low")
 
         if pd.isna(range_high) or pd.isna(range_low):
-            return False, False, "Chưa xác định vùng sideway đủ dài"
+            ignore_gaps = bool(getattr(self.config, "ignore_gaps", False))
+            donchian_period = max(2, int(getattr(self.config, "donchian_period", 20)))
+            valid_range = df[["donchian_high", "donchian_low"]].dropna()
+            bars_ready = len(valid_range)
+            if ignore_gaps and bars_ready >= donchian_period and idx > 0:
+                fallback_high = df["donchian_high"].ffill().iloc[idx]
+                fallback_low = df["donchian_low"].ffill().iloc[idx]
+                if not pd.isna(fallback_high) and not pd.isna(fallback_low):
+                    range_high, range_low = fallback_high, fallback_low
+                else:
+                    ignore_gaps = False  # fallback failed
+            if pd.isna(range_high) or pd.isna(range_low):
+                self._debug_counters["missing_range"] += 1
+                try:
+                    current_dt = pd.to_datetime(current.get("datetime")).to_pydatetime()
+                    tf_min = self._timeframe_minutes()
+                    need_from = current_dt - timedelta(minutes=donchian_period * tf_min)
+                    have_from = pd.to_datetime(df.iloc[0].get("datetime")).to_pydatetime()
+                    gap_info = f"thiếu dữ liệu từ {need_from.isoformat()} (hiện có từ {have_from.isoformat()})"
+                    recent_na = df[["datetime", "donchian_high", "donchian_low"]].iloc[max(0, idx-3):idx+1]
+                    na_detail = recent_na.to_dict("records")
+                except Exception:
+                    gap_info = "thiếu dữ liệu đầu kỳ"
+                    na_detail = []
+                self._debug_reasons.append("Chưa có range đủ dài")
+                return False, False, f"Chưa xác định vùng sideway đủ dài (range_ready={bars_ready}, cần >= {donchian_period}; {gap_info}; near={na_detail})"
 
         atr_value = float(current.get('atr') or 0.0)
         if atr_value <= 0 or np.isnan(atr_value):
+            self._debug_counters["atr_invalid"] += 1
+            self._debug_reasons.append("ATR không hợp lệ")
             return False, False, "ATR không hợp lệ"
 
         atr_baseline = float(current.get("atr_baseline") or 0.0)
@@ -260,8 +295,12 @@ class MACrossoverStrategy:
         atr_min = atr_baseline * atr_min_mult
         atr_max = atr_baseline * atr_max_mult
         if atr_value < atr_min:
+            self._debug_counters["atr_low"] += 1
+            self._debug_reasons.append("ATR thấp")
             return False, False, f"ATR {atr_value:.2f} thấp hơn ngưỡng {atr_min:.2f}"
         if atr_value > atr_max:
+            self._debug_counters["atr_high"] += 1
+            self._debug_reasons.append("ATR cao")
             return False, False, f"ATR {atr_value:.2f} vượt ngưỡng {atr_max:.2f} (quá biến động)"
 
         range_height = range_high - range_low
@@ -270,10 +309,18 @@ class MACrossoverStrategy:
 
         bullish_ready = current.close > (range_high + buffer)
         bearish_ready = current.close < (range_low - buffer)
+        # Giảm spam log: nếu vẫn trong range và trạng thái không đổi thì không log thêm
+        cur_state = "bull" if bullish_ready else "bear" if bearish_ready else "none"
+        last_state = getattr(self, "_last_ready_state", None)
+        self._last_ready_state = cur_state
 
         # EMA trend filter
         reason = f"Range {range_low:.2f}-{range_high:.2f}"
         if not bullish_ready and not bearish_ready:
+            self._debug_counters["no_breakout"] += 1
+            self._debug_reasons.append("Chưa phá range")
+            if cur_state == "none" and last_state == "none":
+                return False, False, ""
             return False, False, f"{reason} | close {current.close:.2f} chưa phá vùng (buffer {buffer:.2f})"
 
         trend_val = current.get("ema_trend")
@@ -281,14 +328,23 @@ class MACrossoverStrategy:
             if bullish_ready and current.close < trend_val:
                 bullish_ready = False
                 reason = "Chưa vượt EMA trend"
+                self._debug_reasons.append("Chưa vượt EMA trend")
+                self._debug_counters["trend_filter"] += 1
             if bearish_ready and current.close > trend_val:
                 bearish_ready = False
                 reason = "Chưa nằm dưới EMA trend"
+                self._debug_reasons.append("Chưa nằm dưới EMA trend")
+                self._debug_counters["trend_filter"] += 1
 
         if bullish_ready:
+            self._debug_counters["entry_allowed"] += 1
+            self._maybe_log_debug_counter()
             return True, False, f"Breakout BUY xác nhận @ {current.close:.2f}"
         if bearish_ready:
+            self._debug_counters["entry_allowed"] += 1
+            self._maybe_log_debug_counter()
             return False, True, f"Breakout SELL xác nhận @ {current.close:.2f}"
+        self._maybe_log_debug_counter()
         return False, False, reason
 
     async def _manage_open_position(self, current_bar: pd.Series, price: float) -> None:
@@ -402,6 +458,7 @@ class MACrossoverStrategy:
         if getattr(self.config, "max_positions", 1) <= 0:
             await self._emit_status("max_positions=0, không mở lệnh mới")
             return
+        self._debug_counters["open_attempts"] += 1
 
         # Tính SL/TP: ưu tiên theo pip nếu có cấu hình, ngược lại dùng ATR
         atr = current_bar.atr
@@ -491,6 +548,7 @@ class MACrossoverStrategy:
         }
         await self._emit_event(open_payload)
         await self._persist_trade_event("open", open_payload)
+        self._log_debug_counter(force=True)
 
     async def _send_mt5_order(self, request: Dict[str, Any]):
         """Gửi lệnh MT5 với retry đơn giản."""
@@ -591,6 +649,7 @@ class MACrossoverStrategy:
         await self._persist_trade_event("close", close_payload)
         self._update_risk_after_close(total_pnl_value)
         self.current_position = None
+        self._log_debug_counter(force=True)
         
     def _check_exit(self, price: float) -> bool:
         """Kiểm tra điều kiện đóng lệnh (SL/TP)."""
@@ -624,6 +683,38 @@ class MACrossoverStrategy:
                 return True
 
         return False
+
+    def _log_debug_counter(self, force: bool = False) -> None:
+        """In thống kê lý do vào/không vào lệnh để dễ theo dõi khi live."""
+        counters = dict(self._debug_counters)
+        counters["reasons_logged"] = len(self._debug_reasons)
+        if not force and counters.get("bars_checked", 0) < 1:
+            return
+        self.logger.info("=" * 60)
+        self.logger.info("DEBUG COUNTERS @ %s", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"))
+        self.logger.info("Bars checked   : %d", counters.get("bars_checked", 0))
+        self.logger.info("Breakout ready : %d", counters.get("entry_allowed", 0))
+        self.logger.info("Range missing  : %d", counters.get("missing_range", 0))
+        self.logger.info("ATR low/high   : %d / %d", counters.get("atr_low", 0), counters.get("atr_high", 0))
+        self.logger.info("Trend filter   : %d", counters.get("trend_filter", 0))
+        self.logger.info("No breakout    : %d", counters.get("no_breakout", 0))
+        self.logger.info("Open attempts  : %d", counters.get("open_attempts", 0))
+        if self._debug_reasons:
+            top_reasons = Counter(self._debug_reasons).most_common(10)
+            self.logger.info("Top reasons    : %s", top_reasons)
+        self.logger.info("=" * 60)
+        self._reset_debug_counters()
+
+    def _maybe_log_debug_counter(self) -> None:
+        """Log định kỳ để tránh spam."""
+        total = self._debug_counters.get("bars_checked", 0)
+        if total and total % 200 == 0:
+            self._log_debug_counter(force=True)
+
+    def _reset_debug_counters(self) -> None:
+        self._debug_counters = defaultdict(int)
+        self._debug_reasons = []
+        self._sample_bars_logged = 0
 
     async def _emit_event(self, payload: Dict[str, Any]) -> None:
         if not self._event_handler:
@@ -687,6 +778,7 @@ class MACrossoverStrategy:
             self._loss_streak = 0
             self._session_losses = {}
             self._cooldown_until = None
+            self._reset_debug_counters()
 
     def _current_session_label(self, now: datetime) -> Optional[str]:
         sessions = getattr(self.config, 'trading_hours', None)
@@ -799,7 +891,7 @@ class MACrossoverStrategy:
 
     def _within_trading_hours(self, now: datetime) -> bool:
         now_local = self._to_trading_timezone(now)
-        if getattr(self.config, "skip_weekend", False) and now_local.weekday() >= 5:
+        if now_local.weekday() >= 5:
             return False
         sessions = getattr(self.config, "trading_hours", None)
         if not sessions:
@@ -881,6 +973,7 @@ class MACrossoverStrategy:
     ) -> pd.DataFrame:
         storage = storage_override or self.storage
         atr_window = max(2, int(getattr(self.config, "atr_period", 14)))
+        ignore_gaps = bool(getattr(self.config, "ignore_gaps", False))
         df = await get_ma_series(
             storage,
             self.config.symbol,
@@ -890,6 +983,8 @@ class MACrossoverStrategy:
             atr_window,
             "ema",
             atr_window=atr_window,
+            ignore_gaps=ignore_gaps,
+            closed_sessions=getattr(self.config, "closed_sessions", None),
         )
         df = df.rename(columns={"ma": "ema"})
         df = self._enrich_dataframe(df)

@@ -1,6 +1,7 @@
 from typing import Optional, List, Dict, Any
 import os
-from datetime import datetime, timezone
+import logging
+from datetime import datetime, timezone, timedelta
 
 from sqlalchemy import (
     MetaData,
@@ -12,6 +13,9 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     select,
+    func,
+    cast,
+    DateTime,
 )
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -20,6 +24,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 DATABASE_URL_ENV = "DATABASE_URL"
 
 metadata = MetaData()
+logger = logging.getLogger(__name__)
 
 ticks_table = Table(
     "ticks",
@@ -33,6 +38,17 @@ ticks_table = Table(
     Column("last", Float),
     UniqueConstraint("symbol", "time_msc", name="uq_ticks_symbol_time"),
 )
+
+
+def _to_minutes(val: str) -> Optional[int]:
+    """Convert HH:MM string to minutes; return None on error."""
+    try:
+        parts = val.split(":")
+        h = int(parts[0])
+        m = int(parts[1]) if len(parts) > 1 else 0
+        return h * 60 + m
+    except Exception:
+        return None
 
 def _get_db_url(provided: Optional[str] = None) -> str:
     if provided:
@@ -94,17 +110,17 @@ class Storage:
             for row in rows:
                 _ensure_datetime(row)
         if rows and not quiet:
-            print("\nVerifying first row before DB insert:")
+            logger.info("Verifying first row before DB insert")
             first_row = rows[0]
             for k, v in first_row.items():
-                print(f"  {k}: {v} (type: {type(v)})")
+                logger.info("  %s: %s (type: %s)", k, v, type(v))
 
         dialect_name = self._engine.dialect.name
         async with self._engine.begin() as conn:
             for i in range(0, len(rows), batch_size):
                 batch = rows[i : i + batch_size]
                 if not quiet:
-                    print(f"\nInserting batch {i//batch_size + 1} ({len(batch)} rows)...")
+                    logger.info("Inserting batch %d (%d rows)...", i // batch_size + 1, len(batch))
                 # Validate numeric values in batch
                 for row in batch:
                     _ensure_datetime(row)
@@ -167,6 +183,129 @@ class Storage:
             result = await conn.execute(stmt)
             rows = result.fetchall()
         return [dict(row._mapping) for row in rows]
+
+    async def get_latest_time_msc(self, symbol: str) -> Optional[int]:
+        """Lấy time_msc lớn nhất hiện có cho symbol (None nếu chưa có)."""
+        await self.ensure_initialized()
+        stmt = select(ticks_table.c.time_msc).where(ticks_table.c.symbol == symbol).order_by(ticks_table.c.time_msc.desc()).limit(1)
+        async with self.engine.connect() as conn:
+            result = await conn.execute(stmt)
+            row = result.first()
+        if row is None:
+            return None
+        return int(row[0])
+
+    async def get_time_range_msc(self, symbol: str) -> Optional[tuple[int, int]]:
+        """Trả về (min_time_msc, max_time_msc) nếu có dữ liệu; None nếu bảng rỗng cho symbol."""
+        await self.ensure_initialized()
+        stmt = (
+            select(
+                ticks_table.c.time_msc.min().label("min_msc"),
+                ticks_table.c.time_msc.max().label("max_msc"),
+            )
+            .where(ticks_table.c.symbol == symbol)
+        )
+        async with self.engine.connect() as conn:
+            result = await conn.execute(stmt)
+            row = result.first()
+        if not row or row[0] is None or row[1] is None:
+            return None
+        return int(row[0]), int(row[1])
+
+    async def get_missing_hour_ranges(
+        self,
+        symbol: str,
+        start_dt: datetime,
+        end_dt: datetime,
+        min_ticks_per_hour: int = 1,
+        skip_weekend: bool = True,
+        closed_sessions: Optional[List[str]] = None,
+    ) -> List[tuple[datetime, datetime]]:
+        """Tìm các khoảng giờ trống dữ liệu ticks.
+
+        Trả về danh sách (range_start, range_end) theo UTC, liên tiếp các giờ thiếu được gộp chung.
+        """
+        await self.ensure_initialized()
+        start_dt = start_dt.astimezone(timezone.utc)
+        end_dt = end_dt.astimezone(timezone.utc)
+        dt_col = cast(ticks_table.c.datetime, DateTime(timezone=True))
+        hour_expr = func.date_trunc("hour", dt_col).label("hour_start")
+        hour_counts = (
+            select(
+                hour_expr,
+                func.count().label("cnt"),
+            )
+            .where(
+                ticks_table.c.symbol == symbol,
+                dt_col >= start_dt,
+                dt_col <= end_dt,
+            )
+            .group_by(hour_expr)
+            .subquery("hour_counts")
+        )
+        stmt = select(hour_counts.c.hour_start, hour_counts.c.cnt)
+        hours_with_data: dict[str, int] = {}
+        async with self.engine.connect() as conn:
+            result = await conn.execute(stmt)
+            for row in result.fetchall():
+                hour_start = row[0]
+                cnt = row[1]
+                if isinstance(hour_start, datetime):
+                    key = hour_start.replace(tzinfo=None).isoformat()
+                else:
+                    key = str(hour_start)
+                hours_with_data[key] = cnt
+
+        closed_sessions = closed_sessions or []
+        missing_ranges: List[tuple[datetime, datetime]] = []
+        cur = start_dt.replace(minute=0, second=0, microsecond=0)
+        end_floor = end_dt.replace(minute=0, second=0, microsecond=0)
+        range_start = None
+        while cur <= end_floor:
+            # Bỏ qua giờ cuối tuần hoặc khung giờ đóng cửa
+            if skip_weekend and cur.weekday() >= 5:
+                if range_start is not None:
+                    missing_ranges.append((range_start, cur))
+                    range_start = None
+                cur += timedelta(hours=1)
+                continue
+            if closed_sessions:
+                cur_min = cur.hour * 60 + cur.minute
+                closed = False
+                for session in closed_sessions:
+                    try:
+                        start_str, end_str = session.split("-", 1)
+                        start_min = _to_minutes(start_str.strip())
+                        end_min = _to_minutes(end_str.strip())
+                    except ValueError:
+                        continue
+                    if start_min is None or end_min is None:
+                        continue
+                    if end_min < start_min:
+                        if cur_min >= start_min or cur_min <= end_min:
+                            closed = True
+                            break
+                    else:
+                        if start_min <= cur_min <= end_min:
+                            closed = True
+                            break
+                if closed:
+                    if range_start is not None:
+                        missing_ranges.append((range_start, cur))
+                        range_start = None
+                    cur += timedelta(hours=1)
+                    continue
+            key = cur.replace(tzinfo=None).isoformat()
+            has_data = hours_with_data.get(key, 0) >= min_ticks_per_hour
+            if not has_data and range_start is None:
+                range_start = cur
+            if has_data and range_start is not None:
+                missing_ranges.append((range_start, cur))
+                range_start = None
+            cur += timedelta(hours=1)
+        if range_start is not None:
+            missing_ranges.append((range_start, end_floor + timedelta(hours=1)))
+        return missing_ranges
 
 
 def _ensure_datetime(row: Dict) -> None:

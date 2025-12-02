@@ -8,9 +8,12 @@ from typing import Optional, List, Dict
 
 import pandas as pd
 from uuid import uuid4
+import logging
 
 from app.storage import Storage
 from app.Breakout_Strategy import MAConfig, MACrossoverStrategy
+
+logger = logging.getLogger(__name__)
 
 
 async def run_backtest(
@@ -48,11 +51,12 @@ async def run_backtest(
     max_spread_points: float,
     allowed_deviation_points: float,
     slippage_points: float,
-    skip_weekend: bool,
+    closed_sessions: Optional[str],
     max_daily_loss: Optional[float],
     max_loss_streak: Optional[int],
     max_losses_per_session: Optional[int],
     cooldown_minutes: Optional[int],
+    ignore_gaps: bool,
     session_cooldown_minutes: int,
     return_summary: bool = False,
 ) -> None:
@@ -90,10 +94,11 @@ async def run_backtest(
     config.min_atr_multiplier = min_atr_multiplier
     config.max_atr_multiplier = max_atr_multiplier
     config.max_spread_points = max_spread_points
+    config.ignore_gaps = ignore_gaps
     config.allowed_deviation_points = allowed_deviation_points
     config.slippage_points = slippage_points
     config.trading_hours = [h.strip() for h in trading_hours.split(',')] if trading_hours else None
-    config.skip_weekend = skip_weekend
+    config.closed_sessions = [h.strip() for h in closed_sessions.split(',')] if closed_sessions else None
     config.max_daily_loss = max_daily_loss
     config.max_loss_streak = max_loss_streak
     config.max_losses_per_session = max_losses_per_session
@@ -277,7 +282,7 @@ async def run_backtest(
     try:
         await storage.insert_backtest_trades(db_rows)
     except Exception as exc:
-        print(f"Bỏ qua lưu backtest (table không khả dụng): {exc}")
+        logger.warning("Bỏ qua lưu backtest (table không khả dụng): %s", exc)
 
     total = len(trades)
     wins = sum(1 for t in trades if t['pnl'] > 0)
@@ -300,16 +305,16 @@ async def run_backtest(
     }
 
     if not return_summary:
-        print('Tổng kết Backtest')
-        print('--------------------------------')
-        print(f'Số lệnh: {total}, Thắng: {wins}, Thua: {losses}')
-        print(f'Tổng PnL (đơn vị giá): {total_pnl:.6f}, Trung bình/lệnh: {avg_pnl:.6f}')
+        logger.info('Tổng kết Backtest')
+        logger.info('--------------------------------')
+        logger.info('Số lệnh: %s, Thắng: %s, Thua: %s', total, wins, losses)
+        logger.info('Tổng PnL (đơn vị giá): %.6f, Trung bình/lệnh: %.6f', total_pnl, avg_pnl)
         if size_from_risk:
-            print(f'Tổng PnL (USD): {total_usd_pnl:.2f} (khối lượng theo rủi ro)')
+            logger.info('Tổng PnL (USD): %.2f (khối lượng theo rủi ro)', total_usd_pnl)
         else:
-            print(f'Tổng PnL (USD): {total_usd_pnl:.2f} với volume={volume}, contract_size={contract_size}')
-        print(f'Trung bình/lệnh (USD): {avg_usd_pnl:.2f}')
-        print(f'Đã lưu {len(db_rows)} lệnh vào bảng backtest_trades (run_id={run_id})')
+            logger.info('Tổng PnL (USD): %.2f với volume=%s, contract_size=%s', total_usd_pnl, volume, contract_size)
+        logger.info('Trung bình/lệnh (USD): %.2f', avg_usd_pnl)
+        logger.info('Đã lưu %d lệnh vào bảng backtest_trades (run_id=%s)', len(db_rows), run_id)
 
     await storage.close()
     if return_summary:

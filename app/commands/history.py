@@ -7,6 +7,7 @@ from datetime import datetime, timezone, timedelta
 from time import sleep
 from typing import List
 from functools import partial
+import logging
 
 try:  # MetaTrader5 là dependency tuỳ chọn
     import MetaTrader5 as mt5  # type: ignore
@@ -15,7 +16,8 @@ except Exception:  # pragma: no cover - MT5 không khả dụng
 
 from app.storage import Storage
 from app.config import DEFAULT_DONCHIAN_PARAMS
-from datetime import timezone
+
+logger = logging.getLogger(__name__)
 
 
 def parse_mt5_tick(raw_tick) -> dict:
@@ -41,13 +43,18 @@ def list_available_symbols() -> None:
     try:
         symbols = mt5.symbols_get()
         if symbols is None:
-            print("Không lấy được danh sách symbols")
+            logger.error("Không lấy được danh sách symbols")
             return
-        print(f"Có {len(symbols)} symbols:")
+        logger.info("Có %d symbols:", len(symbols))
         for sym in symbols:
-            print(
-                f"- {sym.name}: visible={sym.visible}, select={sym.select}, "
-                f"trade_mode={sym.trade_mode}, bid={sym.bid}, ask={sym.ask}"
+            logger.info(
+                "- %s: visible=%s, select=%s, trade_mode=%s, bid=%s, ask=%s",
+                sym.name,
+                sym.visible,
+                sym.select,
+                sym.trade_mode,
+                sym.bid,
+                sym.ask,
             )
     finally:
         mt5.shutdown()
@@ -77,9 +84,11 @@ def fetch_ticks_mt5(
 
         now = datetime.now(timezone.utc)
         if start > now or end > now:
-            print(
-                f"WARNING: Thời gian yêu cầu ({start} -> {end}) vượt quá thời điểm hiện tại ({now}). "
-                "Điều chỉnh lấy 7 ngày gần nhất."
+            logger.warning(
+                "Thời gian yêu cầu (%s -> %s) vượt quá thời điểm hiện tại (%s). Điều chỉnh lấy 7 ngày gần nhất.",
+                start,
+                end,
+                now,
             )
             end = now
             start = end - timedelta(days=7)
@@ -91,7 +100,7 @@ def fetch_ticks_mt5(
             utc_from = int(window_start.replace(tzinfo=timezone.utc).timestamp())
             utc_to = int(window_end.replace(tzinfo=timezone.utc).timestamp())
 
-            print(f"Đang lấy ticks từ {window_start} đến {window_end}...")
+            logger.info("Đang lấy ticks từ %s đến %s...", window_start, window_end)
 
             raw = None
             last_error = None
@@ -101,11 +110,17 @@ def fetch_ticks_mt5(
                     break
                 last_error = mt5.last_error()
                 if attempt < max_retries - 1:
-                    print(f"Lần thử {attempt + 1}/{max_retries} thất bại: {last_error}. Thử lại sau {retry_delay}s...")
+                    logger.warning(
+                        "Lần thử %d/%d thất bại: %s. Thử lại sau %ss...",
+                        attempt + 1,
+                        max_retries,
+                        last_error,
+                        retry_delay,
+                    )
                     sleep(retry_delay)
 
             if raw is None or len(raw) == 0:
-                print(f"Không lấy được dữ liệu cho {window_start} -> {window_end}: {last_error}")
+                logger.error("Không lấy được dữ liệu cho %s -> %s: %s", window_start, window_end, last_error)
             else:
                 window_ticks: List[dict] = []
                 for item in raw:
@@ -113,13 +128,13 @@ def fetch_ticks_mt5(
                         window_ticks.append(parse_mt5_tick(item))
                     except (ValueError, TypeError):
                         continue
-                print(f"Parsed {len(window_ticks)} ticks")
+                logger.info("Parsed %d ticks", len(window_ticks))
                 all_ticks.extend(window_ticks)
 
             window_start = window_end
 
         if not all_ticks:
-            print("Thử lấy 1 giờ dữ liệu gần nhất...")
+            logger.info("Thử lấy 1 giờ dữ liệu gần nhất...")
             end = now
             start = end - timedelta(hours=1)
             utc_from = int(start.replace(tzinfo=timezone.utc).timestamp())
@@ -144,6 +159,7 @@ async def fetch_history(
     db_url: str = None,
     batch: int = None,
     max_days: int = None,
+    resume: bool = False,
 ) -> None:
     cfg = DEFAULT_DONCHIAN_PARAMS
     max_days = max_days if max_days is not None else int(cfg.get("history_max_days", 1))
@@ -154,32 +170,60 @@ async def fetch_history(
         end = _parse_iso_utc(str(cfg.get("end")))
     if db_url is None:
         db_url = cfg.get("db_url")
-    print("Fetching ticks from MT5...")
+    storage = Storage(db_url=db_url)
+    await storage.init()
+
+    fetch_start = start
+    if resume:
+        latest_msc = await storage.get_latest_time_msc(symbol)
+        start_msc = int(start.replace(tzinfo=timezone.utc).timestamp() * 1000)
+        if latest_msc is not None and latest_msc >= start_msc:
+            overlap_minutes = 60  # nạp chồng 1h để tránh hụt dữ liệu sát mép
+            fetch_start = datetime.fromtimestamp(latest_msc / 1000, tz=timezone.utc) - timedelta(minutes=overlap_minutes)
+            logger.info(
+                "Đã có dữ liệu tới %s, fetch tiếp từ %s",
+                datetime.fromtimestamp(latest_msc/1000, tz=timezone.utc).isoformat(),
+                fetch_start.isoformat(),
+            )
+    else:
+        logger.info("Fetch từ %s tới %s (không dùng resume)", fetch_start.isoformat(), end.isoformat())
+
+    logger.info("Fetching ticks from MT5...")
     loop = asyncio.get_running_loop()
-    fetch_fn = partial(fetch_ticks_mt5, symbol, start, end, max_days_per_call=max_days)
+    fetch_fn = partial(fetch_ticks_mt5, symbol, fetch_start, end, max_days_per_call=max_days)
     ticks = await loop.run_in_executor(None, fetch_fn)
-    print(f"Fetched {len(ticks)} ticks total")
+    logger.info("Fetched %d ticks total", len(ticks))
 
     rows = []
     for tick in ticks:
-        dt_utc = datetime.fromtimestamp(tick.time_msc / 1000.0, tz=timezone.utc)
+        # tick có thể là dict (parse_mt5_tick) hoặc mt5.Tick tuỳ môi trường
+        if isinstance(tick, dict):
+            time_msc = int(tick.get("time_msc") or tick.get("time") * 1000)
+            bid = tick.get("bid")
+            ask = tick.get("ask")
+            last = tick.get("last")
+        else:
+            time_msc = int(getattr(tick, "time_msc", 0) or getattr(tick, "time", 0) * 1000)
+            bid = getattr(tick, "bid", None)
+            ask = getattr(tick, "ask", None)
+            last = getattr(tick, "last", None)
+
+        dt_utc = datetime.fromtimestamp(time_msc / 1000.0, tz=timezone.utc)
         rows.append(
             {
                 "symbol": symbol,
-                "time_msc": tick.time_msc,
+                "time_msc": time_msc,
                 "datetime": dt_utc.isoformat(),
-                "bid": float(tick.bid) if tick.bid is not None else None,
-                "ask": float(tick.ask) if tick.ask is not None else None,
-                "last": float(tick.last) if tick.last is not None else None,
+                "bid": float(bid) if bid is not None else None,
+                "ask": float(ask) if ask is not None else None,
+                "last": float(last) if last is not None else None,
             }
         )
 
-    storage = Storage(db_url=db_url)
-    await storage.init()
     try:
-        print(f"Inserting {len(rows)} ticks into database...")
+        logger.info("Inserting %d ticks into database...", len(rows))
         await storage.insert_ticks_batch(rows, batch_size=batch)
-        print("Insert completed")
+        logger.info("Insert completed")
     finally:
         await storage.close()
 

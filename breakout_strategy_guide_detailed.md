@@ -56,7 +56,7 @@ Thêm ATR trailing stop → chiến lược này trên XAUUSD, NAS100, dầu th�
 tradingAuto/
 ├─ app/
 │  ├─ Breakout_Strategy.py      # Chiến lược Donchian 20 + EMA200: guard ATR/spread, 
-|  |                              skip weekend, trailing/breakeven/partial-close, 
+|  |                              auto-skip weekend, trailing/breakeven/partial-close, 
 |  |                              MT5 order send, risk cooldown.
 │  ├─ cli.py                    # CLI gốc: subcommand fetch-history / 
 |  |                              list-symbols / backtest / live, 
@@ -82,7 +82,56 @@ tradingAuto/
 │     └─ history.py             # Lấy tick MT5 theo thời gian, lưu vào DB; 
 |                                 list-symbols; dùng default start/end/batch từ config.
 ├─ breakout_strategy_guide_detailed.md # Tài liệu mô tả chiến lược breakout.
-├─ note.txt                     # Ghi chú tuỳ chỉnh.
 ├─ resample_ticks_to_bars.py    # Script tiện ích resample ticks sang bars (ngoài app).
 ├─ optimize_breakout_params_v2.py / optimize_wrap.py # Script tối ưu tham số (chưa gắn CLI).
 └─ requirements.txt             # Danh sách dependency.
+
+Đánh giá từ góc độ kinh tế học về chiến lược Donchian Breakout
+Sau khi phân tích mã nguồn của chiến lược Donchian breakout kết hợp với EMA200, tôi có một số nhận xét về khả năng đạt win rate cao và hiệu quả tổng thể:
+
+Điểm mạnh của chiến lược
+1. Quản lý vốn và rủi ro toàn diện
+Tính toán khối lượng giao dịch theo tỷ lệ rủi ro (1.5% vốn) là rất hợp lý
+Sử dụng ATR để điều chỉnh stop loss và take profit tự động theo biến động thị trường
+Tỷ lệ risk:reward là 1:2.5 (SL=2ATR, TP=5ATR) giúp bù đắp cho các lệnh thua lỗ
+Có cơ chế breakeven và trailing stop để bảo toàn lợi nhuận
+Hệ thống đóng một phần vị thế (partial close) giúp bảo vệ lợi nhuận sớm
+2. Hệ thống quản lý rủi ro đa lớp
+Giới hạn lỗ hàng ngày (max_daily_loss)
+Dừng sau chuỗi thua liên tiếp (max_loss_streak)
+Giới hạn số lần thua trong một phiên (max_losses_per_session)
+Thời gian nghỉ sau thua lỗ (cooldown_minutes)
+Hạn chế spread quá rộng (max_spread_points)
+3. Lọc tín hiệu và theo dõi hiệu suất tốt
+EMA200 làm bộ lọc xu hướng giúp giảm tín hiệu giả
+Lọc theo khung giờ giao dịch cụ thể
+Theo dõi chi tiết lý do không vào lệnh qua debug counters
+Điểm cần cải thiện để nâng cao win rate
+1. Giới hạn của chiến lược breakout đơn thuần
+Mặc dù code được triển khai tốt, chiến lược breakout Donchian cơ bản thường có win rate khiêm tốn (35-45%) do bản chất của breakout:
+
+Dễ bắt gặp tín hiệu giả (false breakout), đặc biệt trong thị trường sideway
+EMA200 là bộ lọc đơn chiều, không đủ để nhận diện false breakout
+Thiếu xem xét volume khi xác định breakout (volume thấp = nguy cơ cao là breakout giả)
+2. Thiếu phân tích đa chu kỳ
+Chỉ dựa vào một timeframe duy nhất, không xét xu hướng ở khung thời gian lớn hơn
+Có thể cải thiện bằng cách xét xu hướng ở timeframe cao hơn để giao dịch theo xu hướng chính
+3. Tối ưu điểm vào
+Chiến lược hiện tại vào lệnh ngay tại điểm breakout, không có cơ chế chờ pullback
+Điều này có thể dẫn đến vào lệnh ở vùng giá cao/thấp quá đà
+4. Thiếu bộ lọc bổ sung
+Không kết hợp với các chỉ báo oscillator (RSI, Stochastic) để xác định overbought/oversold
+Thiếu phân tích mức hỗ trợ/kháng cự quan trọng để lọc tín hiệu
+Kết luận và đề xuất
+Với setup hiện tại, chiến lược này có thể đạt được:
+
+Win rate: Khoảng 35-45% (khá trung bình cho chiến lược breakout)
+Tỷ lệ risk:reward: 1:2.5 (rất tốt, đủ để bù đắp win rate thấp)
+Kỳ vọng lợi nhuận: Tích cực nếu win rate > 30% với tỷ lệ R:R hiện tại
+Để nâng cao win rate:
+
+Thêm xác nhận volume khi breakout (volume tăng đột biến)
+Bổ sung bộ lọc RSI để giảm tín hiệu giả (không vào khi RSI quá cao/thấp)
+Thêm phân tích đa chu kỳ (chỉ trade theo xu hướng của timeframe lớn hơn)
+Cân nhắc thêm xác nhận nến (ví dụ: nến engulfing, piercing, etc.)
+Cơ chế chờ pullback sau breakout để có điểm vào tối ưu hơn

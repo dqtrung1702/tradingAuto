@@ -2,7 +2,8 @@
 
 import asyncio
 from datetime import datetime, timezone, timedelta
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional, List
+import logging
 
 from app.commands import history as history_cmd
 from app.config import get_settings
@@ -10,6 +11,8 @@ from app.models import Quote
 from app.quote_service import QuoteService
 from app.storage import Storage
 from app.Breakout_Strategy import MAConfig, MACrossoverStrategy
+
+logger = logging.getLogger(__name__)
 
 
 async def run_live_strategy(
@@ -45,11 +48,12 @@ async def run_live_strategy(
     max_spread_points: float,
     allowed_deviation_points: float,
     slippage_points: float,
-    skip_weekend: bool,
+    closed_sessions: Optional[str],
     max_daily_loss: Optional[float],
     max_loss_streak: Optional[int],
     max_losses_per_session: Optional[int],
     cooldown_minutes: Optional[int],
+    ignore_gaps: bool,
     session_cooldown_minutes: int,
     poll: float,
     live: bool,
@@ -67,6 +71,7 @@ async def run_live_strategy(
     storage = Storage(db_url)
     await storage.init()
     resolved_symbol = symbol or base_settings.quote_symbol
+    closed_sessions_list = [h.strip() for h in closed_sessions.split(',')] if closed_sessions else None
     if ensure_history_hours > 0:
         await _ensure_history_data(
             storage,
@@ -75,6 +80,7 @@ async def run_live_strategy(
             db_url,
             history_batch,
             history_max_days,
+            closed_sessions=closed_sessions_list,
         )
 
     symbol_settings = base_settings.model_copy(update={"quote_symbol": resolved_symbol})
@@ -124,7 +130,8 @@ async def run_live_strategy(
     cfg.allowed_deviation_points = allowed_deviation_points
     cfg.slippage_points = slippage_points
     cfg.trading_hours = [h.strip() for h in trading_hours.split(',')] if trading_hours else None
-    cfg.skip_weekend = skip_weekend
+    cfg.closed_sessions = closed_sessions_list
+    cfg.ignore_gaps = ignore_gaps
     cfg.max_daily_loss = max_daily_loss
     cfg.max_loss_streak = max_loss_streak
     cfg.max_losses_per_session = max_losses_per_session
@@ -137,7 +144,7 @@ async def run_live_strategy(
     strategy = MACrossoverStrategy(cfg, local_quote_service, storage, event_handler=event_handler)
     strategy._running = True  # noqa: SLF001 - giữ nguyên hành vi script gốc
 
-    print('Bắt đầu chạy live. Nhấn Ctrl+C để dừng...')
+    logger.info('Bắt đầu chạy live. Nhấn Ctrl+C để dừng...')
     try:
         while True:
             quote = await local_quote_service.fetch_quote()
@@ -163,7 +170,7 @@ async def run_live_strategy(
 
             await asyncio.sleep(float(poll))
     except KeyboardInterrupt:  # pragma: no cover - tương tác người dùng
-        print('Đang dừng...')
+        logger.info('Đang dừng...')
     except asyncio.CancelledError:
         raise
     finally:
@@ -180,25 +187,33 @@ async def _ensure_history_data(
     db_url: str,
     batch: int,
     max_days: int,
+    closed_sessions: Optional[List[str]] = None,
 ) -> None:
     end = datetime.now(timezone.utc)
     start = end - timedelta(hours=hours)
-    since_msc = int(start.timestamp() * 1000)
-    has_data = await storage.has_ticks_since(symbol, since_msc)
-    if has_data:
+    # Kiểm tra gap theo giờ, fetch đúng đoạn thiếu nếu có
+    missing_ranges = await storage.get_missing_hour_ranges(
+        symbol,
+        start,
+        end,
+        min_ticks_per_hour=1,
+        skip_weekend=True,
+        closed_sessions=closed_sessions,
+    )
+    if not missing_ranges:
         return
-
-    print(
-        f"Không đủ dữ liệu lịch sử cho {symbol} (cần từ {start.isoformat()}), tự động fetch từ MT5..."
-    )
-    await history_cmd.fetch_history(
-        symbol=symbol,
-        start=start,
-        end=end,
-        db_url=db_url,
-        batch=batch,
-        max_days=max_days,
-    )
+    logger.info("Phát hiện thiếu dữ liệu %d đoạn, tiến hành fetch...", len(missing_ranges))
+    for range_start, range_end in missing_ranges:
+        logger.info("Fetch %s từ %s đến %s", symbol, range_start.isoformat(), range_end.isoformat())
+        await history_cmd.fetch_history(
+            symbol=symbol,
+            start=range_start,
+            end=range_end,
+            db_url=db_url,
+            batch=batch,
+            max_days=max_days,
+            resume=False,
+        )
 
 
 async def _ingest_tick(storage: Storage, symbol: str, quote: Quote) -> None:
@@ -223,4 +238,4 @@ async def _dispatch_event(
         if asyncio.iscoroutine(result):
             await result
     except Exception as exc:  # pragma: no cover
-        print("Event handler error:", exc)
+        logger.exception("Event handler error: %s", exc)

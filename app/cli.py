@@ -13,6 +13,9 @@ from typing import Optional
 from app.commands import backtest, history, live
 from app.config import DEFAULT_DONCHIAN_PARAMS
 
+import logging, os
+from logging.handlers import RotatingFileHandler
+
 
 def _parse_dt(value: Optional[str]) -> Optional[datetime]:
     if not value:
@@ -36,6 +39,22 @@ def _cfg_str(key: str) -> Optional[str]:
 
 
 def main() -> None:
+    # Logging setup (config-driven, không dùng env)
+    log_level = str(DEFAULT_DONCHIAN_PARAMS.get("log_level", "INFO")).upper()
+    log_file = str(DEFAULT_DONCHIAN_PARAMS.get("log_file", "logs/app.log"))
+    log_to_console = bool(DEFAULT_DONCHIAN_PARAMS.get("log_to_console", False))
+    os.makedirs(os.path.dirname(log_file) or ".", exist_ok=True)
+    handlers = [
+        RotatingFileHandler(log_file, maxBytes=10_000_000, backupCount=5, encoding="utf-8"),
+    ]
+    if log_to_console:
+        handlers.append(logging.StreamHandler())
+    logging.basicConfig(
+        level=getattr(logging, log_level, logging.INFO),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=handlers,
+    )
+
     parser = argparse.ArgumentParser(description="Donchian breakout toolkit")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -46,6 +65,7 @@ def main() -> None:
     hist_parser.add_argument("--db-url", default=_cfg("db_url"))
     hist_parser.add_argument("--batch", type=int, default=_cfg("history_batch") or 2000)
     hist_parser.add_argument("--max-days", type=int, default=_cfg("history_max_days") or 1)
+    hist_parser.add_argument("--resume", action="store_true", default=False, help="Tiếp tục từ mốc DB hiện có (nạp chồng 1h)")
 
     sub.add_parser("list-symbols", help="Liệt kê symbol khả dụng trong MT5")
 
@@ -83,9 +103,6 @@ def main() -> None:
     backtest_parser.add_argument("--max-spread-points", type=float, default=_cfg("max_spread_points") or 50.0)
     backtest_parser.add_argument("--allowed-deviation-points", type=float, default=_cfg("allowed_deviation_points") or 30.0)
     backtest_parser.add_argument("--slippage-points", type=float, default=_cfg("slippage_points") or 0.0)
-    weekend_group = backtest_parser.add_mutually_exclusive_group()
-    weekend_group.add_argument("--skip-weekend", dest="skip_weekend", action="store_true", default=bool(_cfg("skip_weekend")))
-    weekend_group.add_argument("--no-skip-weekend", dest="skip_weekend", action="store_false")
     backtest_parser.add_argument("--max-daily-loss", type=float, default=_cfg("max_daily_loss"),
                                  help="Giới hạn lỗ tuyệt đối mỗi ngày (USD)")
     backtest_parser.add_argument("--max-loss-streak", type=int, default=_cfg("max_loss_streak"))
@@ -93,6 +110,9 @@ def main() -> None:
     backtest_parser.add_argument("--cooldown-minutes", type=int, default=_cfg("cooldown_minutes"),
                                  help="Số phút tạm dừng trade sau khi vi phạm guard")
     backtest_parser.add_argument("--session-cooldown-minutes", type=int, default=_cfg("session_cooldown_minutes") or 0)
+    backtest_parser.add_argument("--closed-sessions", default=_cfg_str("closed_sessions"))
+    backtest_parser.add_argument("--ignore-gaps", action="store_true", default=bool(_cfg("ignore_gaps")),
+                                 help="Bỏ qua gap dữ liệu (ffill sau resample)")
 
     live_parser = sub.add_parser("live", help="Chạy chiến lược Donchian realtime")
     live_parser.add_argument("--db-url", default=_cfg("db_url"))
@@ -126,14 +146,14 @@ def main() -> None:
     live_parser.add_argument("--max-spread-points", type=float, default=_cfg("max_spread_points") or 50.0)
     live_parser.add_argument("--allowed-deviation-points", type=float, default=_cfg("allowed_deviation_points") or 30.0)
     live_parser.add_argument("--slippage-points", type=float, default=_cfg("slippage_points") or 0.0)
-    weekend_live = live_parser.add_mutually_exclusive_group()
-    weekend_live.add_argument("--skip-weekend", dest="skip_weekend", action="store_true", default=bool(_cfg("skip_weekend")))
-    weekend_live.add_argument("--no-skip-weekend", dest="skip_weekend", action="store_false")
     live_parser.add_argument("--max-daily-loss", type=float, default=_cfg("max_daily_loss"))
     live_parser.add_argument("--max-loss-streak", type=int, default=_cfg("max_loss_streak"))
     live_parser.add_argument("--max-losses-per-session", type=int, default=_cfg("max_losses_per_session"))
     live_parser.add_argument("--cooldown-minutes", type=int, default=_cfg("cooldown_minutes"))
     live_parser.add_argument("--session-cooldown-minutes", type=int, default=_cfg("session_cooldown_minutes") or 0)
+    live_parser.add_argument("--closed-sessions", default=_cfg_str("closed_sessions"))
+    live_parser.add_argument("--ignore-gaps", action="store_true", default=bool(_cfg("ignore_gaps")),
+                             help="Bỏ qua gap dữ liệu (ffill sau resample)")
     live_parser.add_argument("--poll", type=float, default=_cfg("poll") or 1.0)
     live_parser.add_argument("--order-retry-times", type=int, default=_cfg("order_retry_times") or 1)
     live_parser.add_argument("--order-retry-delay-ms", type=int, default=_cfg("order_retry_delay_ms") or 0)
@@ -149,8 +169,10 @@ def main() -> None:
     if args.command == "fetch-history":
         start = _parse_dt(args.start)
         end = _parse_dt(args.end)
-        if start is None or end is None:
-            raise ValueError("--start và --end phải theo định dạng ISO8601 (YYYY-MM-DD)")
+        if start is None:
+            raise ValueError("--start phải theo định dạng ISO8601 (YYYY-MM-DD)")
+        if end is None:
+            end = datetime.now(timezone.utc)
         asyncio.run(
             history.fetch_history(
                 symbol=args.symbol,
@@ -159,6 +181,7 @@ def main() -> None:
                 db_url=args.db_url,
                 batch=args.batch,
                 max_days=args.max_days,
+                resume=args.resume,
             )
         )
     elif args.command == "list-symbols":
@@ -199,11 +222,12 @@ def main() -> None:
                 max_spread_points=args.max_spread_points,
                 allowed_deviation_points=args.allowed_deviation_points,
                 slippage_points=args.slippage_points,
-                skip_weekend=args.skip_weekend,
+                closed_sessions=args.closed_sessions,
                 max_daily_loss=args.max_daily_loss,
                 max_loss_streak=args.max_loss_streak,
                 max_losses_per_session=args.max_losses_per_session,
                 cooldown_minutes=args.cooldown_minutes,
+                ignore_gaps=args.ignore_gaps,
                 session_cooldown_minutes=args.session_cooldown_minutes,
             )
         )
@@ -241,11 +265,12 @@ def main() -> None:
                 max_spread_points=args.max_spread_points,
                 allowed_deviation_points=args.allowed_deviation_points,
                 slippage_points=args.slippage_points,
-                skip_weekend=args.skip_weekend,
+                closed_sessions=args.closed_sessions,
                 max_daily_loss=args.max_daily_loss,
                 max_loss_streak=args.max_loss_streak,
                 max_losses_per_session=args.max_losses_per_session,
                 cooldown_minutes=args.cooldown_minutes,
+                ignore_gaps=args.ignore_gaps,
                 session_cooldown_minutes=args.session_cooldown_minutes,
                 poll=args.poll,
                 live=args.live,
