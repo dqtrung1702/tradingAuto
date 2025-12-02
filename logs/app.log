@@ -1076,3 +1076,141 @@
 2025-12-02 16:04:58,295 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
 2025-12-02 16:04:59,308 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4211.26600 ask=4211.30300 @ 2025-12-02T09:04:59.308397+00:00
 2025-12-02 16:04:59,308 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:00,318 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4211.27900 ask=4211.31600 @ 2025-12-02T09:05:00.318046+00:00
+2025-12-02 16:05:00,319 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:01,330 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4211.27000 ask=4211.30700 @ 2025-12-02T09:05:01.330902+00:00
+2025-12-02 16:05:01,330 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:02,347 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4211.83000 ask=4211.86700 @ 2025-12-02T09:05:02.347170+00:00
+2025-12-02 16:05:02,348 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:03,364 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4211.75600 ask=4211.79300 @ 2025-12-02T09:05:03.364196+00:00
+2025-12-02 16:05:03,364 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:04,380 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4211.75500 ask=4211.79200 @ 2025-12-02T09:05:04.380242+00:00
+2025-12-02 16:05:04,380 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:05,392 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.51200 ask=4210.54900 @ 2025-12-02T09:05:05.392847+00:00
+2025-12-02 16:05:05,393 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:06,397 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.61200 ask=4210.64900 @ 2025-12-02T09:05:06.397707+00:00
+2025-12-02 16:05:06,398 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:07,400 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.66800 ask=4210.70500 @ 2025-12-02T09:05:07.399071+00:00
+2025-12-02 16:05:07,400 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:08,407 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.52400 ask=4210.56100 @ 2025-12-02T09:05:08.407119+00:00
+2025-12-02 16:05:08,408 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:09,409 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.50000 ask=4210.53700 @ 2025-12-02T09:05:09.409533+00:00
+2025-12-02 16:05:09,409 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:10,421 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.59100 ask=4210.62800 @ 2025-12-02T09:05:10.421630+00:00
+2025-12-02 16:05:10,422 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:11,439 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.59300 ask=4210.63000 @ 2025-12-02T09:05:11.439360+00:00
+2025-12-02 16:05:11,439 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:12,443 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.67200 ask=4210.70900 @ 2025-12-02T09:05:12.443394+00:00
+2025-12-02 16:05:12,444 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:13,455 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.55000 ask=4210.58700 @ 2025-12-02T09:05:13.455702+00:00
+2025-12-02 16:05:13,455 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:14,466 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.38800 ask=4210.42500 @ 2025-12-02T09:05:14.466345+00:00
+2025-12-02 16:05:14,466 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:15,470 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.36000 ask=4210.39700 @ 2025-12-02T09:05:15.470304+00:00
+2025-12-02 16:05:15,471 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:16,474 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.47600 ask=4210.51300 @ 2025-12-02T09:05:16.474242+00:00
+2025-12-02 16:05:16,475 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:17,479 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.34000 ask=4210.37700 @ 2025-12-02T09:05:17.479029+00:00
+2025-12-02 16:05:17,480 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:18,493 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.34700 ask=4210.38400 @ 2025-12-02T09:05:18.493723+00:00
+2025-12-02 16:05:18,493 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:19,501 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.25800 ask=4210.29500 @ 2025-12-02T09:05:19.501116+00:00
+2025-12-02 16:05:19,501 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:20,517 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.30800 ask=4210.34500 @ 2025-12-02T09:05:20.517284+00:00
+2025-12-02 16:05:20,518 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:21,524 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.05200 ask=4210.08900 @ 2025-12-02T09:05:21.524603+00:00
+2025-12-02 16:05:21,525 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:22,538 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.07700 ask=4210.11400 @ 2025-12-02T09:05:22.538036+00:00
+2025-12-02 16:05:22,538 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:23,550 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.43300 ask=4210.47000 @ 2025-12-02T09:05:23.549730+00:00
+2025-12-02 16:05:23,550 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:24,564 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.27400 ask=4210.31100 @ 2025-12-02T09:05:24.564135+00:00
+2025-12-02 16:05:24,565 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:25,567 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.42400 ask=4210.46100 @ 2025-12-02T09:05:25.567929+00:00
+2025-12-02 16:05:25,568 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:26,578 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.42400 ask=4210.46100 @ 2025-12-02T09:05:26.578510+00:00
+2025-12-02 16:05:26,579 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:27,591 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.39400 ask=4210.43100 @ 2025-12-02T09:05:27.591611+00:00
+2025-12-02 16:05:27,591 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:28,592 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4209.79100 ask=4209.82800 @ 2025-12-02T09:05:28.592686+00:00
+2025-12-02 16:05:28,593 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:29,602 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.07600 ask=4210.11300 @ 2025-12-02T09:05:29.602499+00:00
+2025-12-02 16:05:29,603 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:30,612 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.14600 ask=4210.18300 @ 2025-12-02T09:05:30.612916+00:00
+2025-12-02 16:05:30,613 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:31,626 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4210.20900 ask=4210.24600 @ 2025-12-02T09:05:31.626907+00:00
+2025-12-02 16:05:31,627 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:32,634 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4209.95700 ask=4209.99400 @ 2025-12-02T09:05:32.634566+00:00
+2025-12-02 16:05:32,635 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:33,635 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4209.53500 ask=4209.57200 @ 2025-12-02T09:05:33.635908+00:00
+2025-12-02 16:05:33,636 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:34,643 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4209.52300 ask=4209.56000 @ 2025-12-02T09:05:34.643922+00:00
+2025-12-02 16:05:34,644 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:35,655 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4209.24500 ask=4209.28200 @ 2025-12-02T09:05:35.655042+00:00
+2025-12-02 16:05:35,656 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:36,659 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4209.34600 ask=4209.38300 @ 2025-12-02T09:05:36.659494+00:00
+2025-12-02 16:05:36,660 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:37,663 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.58900 ask=4208.62600 @ 2025-12-02T09:05:37.663688+00:00
+2025-12-02 16:05:37,664 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:38,678 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.38600 ask=4208.42300 @ 2025-12-02T09:05:38.678909+00:00
+2025-12-02 16:05:38,678 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:39,681 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4207.68500 ask=4207.72200 @ 2025-12-02T09:05:39.681714+00:00
+2025-12-02 16:05:39,682 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:40,690 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.02700 ask=4208.06400 @ 2025-12-02T09:05:40.690340+00:00
+2025-12-02 16:05:40,690 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:41,703 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.46600 ask=4208.50300 @ 2025-12-02T09:05:41.703278+00:00
+2025-12-02 16:05:41,703 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:42,718 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.34200 ask=4208.37900 @ 2025-12-02T09:05:42.718190+00:00
+2025-12-02 16:05:42,718 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:43,728 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.28300 ask=4208.32000 @ 2025-12-02T09:05:43.728525+00:00
+2025-12-02 16:05:43,729 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:44,731 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.35400 ask=4208.39100 @ 2025-12-02T09:05:44.731418+00:00
+2025-12-02 16:05:44,732 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:45,743 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.46900 ask=4208.50600 @ 2025-12-02T09:05:45.743666+00:00
+2025-12-02 16:05:45,744 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:46,758 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.54500 ask=4208.58200 @ 2025-12-02T09:05:46.758858+00:00
+2025-12-02 16:05:46,759 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:47,766 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.40200 ask=4208.43900 @ 2025-12-02T09:05:47.766078+00:00
+2025-12-02 16:05:47,767 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:48,780 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.37200 ask=4208.40900 @ 2025-12-02T09:05:48.780854+00:00
+2025-12-02 16:05:48,780 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:49,791 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.25800 ask=4208.29500 @ 2025-12-02T09:05:49.791247+00:00
+2025-12-02 16:05:49,792 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:50,803 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.04600 ask=4208.08300 @ 2025-12-02T09:05:50.803780+00:00
+2025-12-02 16:05:50,803 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:51,810 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.07100 ask=4208.10800 @ 2025-12-02T09:05:51.810633+00:00
+2025-12-02 16:05:51,811 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:52,818 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.14800 ask=4208.18500 @ 2025-12-02T09:05:52.818885+00:00
+2025-12-02 16:05:52,818 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:53,833 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.04300 ask=4208.08000 @ 2025-12-02T09:05:53.833174+00:00
+2025-12-02 16:05:53,833 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:54,847 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4207.90900 ask=4207.94600 @ 2025-12-02T09:05:54.847332+00:00
+2025-12-02 16:05:54,848 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:55,852 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4207.97100 ask=4208.00800 @ 2025-12-02T09:05:55.852620+00:00
+2025-12-02 16:05:55,852 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:56,868 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4207.90000 ask=4207.93700 @ 2025-12-02T09:05:56.868731+00:00
+2025-12-02 16:05:56,868 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:57,870 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4207.85900 ask=4207.89600 @ 2025-12-02T09:05:57.870658+00:00
+2025-12-02 16:05:57,870 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:58,874 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.01500 ask=4208.05200 @ 2025-12-02T09:05:58.874780+00:00
+2025-12-02 16:05:58,875 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:05:59,890 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4207.93600 ask=4207.97300 @ 2025-12-02T09:05:59.890698+00:00
+2025-12-02 16:05:59,891 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:06:00,892 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4207.94900 ask=4207.98600 @ 2025-12-02T09:06:00.892819+00:00
+2025-12-02 16:06:00,893 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:06:01,899 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.12400 ask=4208.16100 @ 2025-12-02T09:06:01.899044+00:00
+2025-12-02 16:06:01,900 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:06:02,912 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.32600 ask=4208.36300 @ 2025-12-02T09:06:02.912473+00:00
+2025-12-02 16:06:02,913 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:06:03,925 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.42100 ask=4208.45800 @ 2025-12-02T09:06:03.925822+00:00
+2025-12-02 16:06:03,926 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:06:04,935 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.34500 ask=4208.38200 @ 2025-12-02T09:06:04.935397+00:00
+2025-12-02 16:06:04,936 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:06:05,944 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.20400 ask=4208.24100 @ 2025-12-02T09:06:05.944732+00:00
+2025-12-02 16:06:05,945 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:06:06,959 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.23700 ask=4208.27400 @ 2025-12-02T09:06:06.959482+00:00
+2025-12-02 16:06:06,960 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:06:07,963 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.40600 ask=4208.44300 @ 2025-12-02T09:06:07.963496+00:00
+2025-12-02 16:06:07,964 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
+2025-12-02 16:06:08,964 [DEBUG] app.Breakout_Strategy: Quote XAUUSD bid=4208.34400 ask=4208.38100 @ 2025-12-02T09:06:08.964816+00:00
+2025-12-02 16:06:08,965 [INFO] app.Breakout_Strategy: STATUS:  | extra={}
